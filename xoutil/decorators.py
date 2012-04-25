@@ -33,6 +33,11 @@ from __future__ import (division as _py3_division,
 
 import sys
 
+from collections import OrderedDict
+from contextlib import nested
+
+from xoutil.objects import nameof
+from xoutil.iterators import flatten
 from xoutil.functools import update_wrapper, wraps, partial
 from xoutil.types import FunctionType as function
 curry = partial
@@ -281,6 +286,91 @@ def instantiate(target, *args, **kwargs):
     '''
     target(*args, **kwargs)
     return target
+
+
+class _SynchronizedType(type):
+    def __init__(self, *args, **kwargs):
+        self._locks = []
+        self._locks_index = OrderedDict()
+        self.global_lock = self.get_lock('xoutil.synchronized.global')
+        super(_SynchronizedType, self).__init__(*args, **kwargs)
+        
+    def get_lock(self, lock):
+        from threading import RLock
+        if lock not in self._locks:
+            l = RLock()
+            l.name = nameof(lock)
+            l.index = len(self._locks) - 1
+            self._locks.append(l)
+            self._locks_index[lock] = len(self._locks) - 1
+        return self._locks[self._locks_index[lock]]
+    
+
+class synchronized(object):
+    '''
+    Makes a method/function synchronized by several locks. 
+    
+    Locks may be:
+    
+    - simple strings
+    - lock objects
+    
+    String locks are globally unique, so they are preferred over lock objects
+    because it's easier to be fooled by lock objects. If no locks are provided
+    a single global lock it's used. The name of this single global lock is:
+    'xoutil.syncronized.global'.
+    
+    This decorator makes sure to acquire the locks always a defined order. So
+    the following two examples are equivalent:
+    
+        >>> @synchronized('asd', 'lkj')
+        ... def something():
+        ...    pass
+        
+        >>> @synchronized('lkj', 'asd')
+        ... def something():
+        ...    pass
+        
+    So the following function will be executed in the context of two reentrant 
+    locks::
+    
+        >>> @synchronized('logging', 'api')
+        ... def hello(name='World'):
+        ...    print('Hello %s!' % name)
+        
+        >>> hello()
+        Hello World!
+        
+        # In the stderr console you may have received some logs about acquiring
+        # and releasing locks. Check the asociated unit tests.
+    '''
+    
+    __metaclass__ = _SynchronizedType
+
+    def __init__(self, *locks):
+        self.locks = self.build_locks(locks)
+        self.target = None
+        
+    @classmethod
+    def build_locks(cls, *locks):
+        locks = tuple(set(flatten(locks))) # Removes duplicates
+        if locks:
+            for lock in (l for l in locks if l not in cls._locks_index):
+                cls.get_lock(lock)
+            res = [cls._locks[x] for lock, x in cls._locks_index.iteritems() if lock in locks]            
+            return res
+        else:
+            return [cls.global_lock]
+
+    def __call__(self, *args, **kwargs):
+        if self.target is None:
+            assert len(args) == 1 and not kwargs
+            self.target = args[0]
+            return self
+        else:
+            with nested(*self.locks):
+                return self.target(*args, **kwargs)
+            
 
 
 __all__ = (b'AttributeAlias',

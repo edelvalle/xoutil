@@ -31,7 +31,7 @@ __docstring_format__ = 'rst'
 __author__ = 'manu'
 
 import unittest
-from xoutil.decorators import assignment_operator, decorator
+from xoutil.decorators import assignment_operator, decorator, synchronized
 
 class TestAssignable(unittest.TestCase):
     def test_inline_expression(self):
@@ -123,6 +123,55 @@ class RegressionTests(unittest.TestCase):
             return n
 
         self.assertEqual(badguy, foobar(1))
+        
+        
+class SynchronizedTests(unittest.TestCase):
+    def test_global_order(self):
+        '''
+        Tests the global order of synchronized-locks to avoid deadlocks.
+        
+        For any pair of locks l1 and l2 if both are applied to two (or more)
+        functions, their relative order is the always the same: if l1 < l2
+        (meaning comes before) for function 1 then l1 < l2 for function 2 and
+        viceversa. The dual should also hold.
+        '''
+        import random
+        from xoutil.uuid import uuid
+        from itertools import combinations
+        lock_names = [uuid() for _x in range(10)]
+        locks1 = random.sample(lock_names, 8)
+        locks2 = random.sample(lock_names, 8)
+        
+        @synchronized(*locks1)
+        def function1():
+            pass
 
+        @synchronized(*locks2)
+        def function2():
+            pass
+        
+        function1_locks = {l.name: l for l in function1.locks}
+        function2_locks = {l.name: l for l in function2.locks}
+        
+        for l1, l2 in combinations(lock_names, 2):
+            print('Testing {l1}, {l2}'.format(l1=l1, l2=l2))
+            if l1 in function1_locks and l2 in function1_locks:
+                i1 = function1_locks[l1].index
+                i2 = function1_locks[l2].index
+                if l1 in function2_locks and l2 in function2_locks:
+                    j1 = function2_locks[l1].index
+                    j2 = function2_locks[l2].index
+                    self.assert_((i1 < i2) and (j1 < i2) or (i1 > i2) and (j1 > j2))
+                    
+    def test_methods(self):
+        class Foobar(object):
+            @synchronized()
+            def method1(self, n):
+                return -n
+            
+        foo = Foobar()
+        self.assertEqual(-1, foo.method1(1))
+            
+        
 if __name__ == "__main__":
     unittest.main(verbosity=2)
