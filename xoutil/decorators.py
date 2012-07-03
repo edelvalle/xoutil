@@ -38,15 +38,17 @@ from contextlib import nested
 
 from xoutil.objects import nameof
 from xoutil.iterators import flatten
-from xoutil.functools import update_wrapper, wraps, partial
-from xoutil.types import FunctionType as function
-curry = partial
+
+from functools import wraps, partial
+from types import FunctionType as function
 
 
 class AttributeAlias(object):
     '''
     Descriptor to create aliases for object attributes.
-    This descriptor is mainly to be used internally by "aliases" decorator.
+
+    This descriptor is mainly to be used internally by :func:`aliases`
+    decorator.
     '''
 
     def __init__(self, attr_name):
@@ -65,8 +67,15 @@ class AttributeAlias(object):
 
 def settle(**kwargs):
     '''
-    Return a decorator that settle different attribute values to the
-    decorated target (function or class).
+    Returns a decorator that sets different attribute values to the decorated
+    target (function or class)::
+
+        >>> @settle(name='Name')
+        ... class Person(object):
+        ...    pass
+
+        >>> Person.name
+        'Name'
     '''
     def inner(target):
         for key, value in kwargs.iteritems():
@@ -77,15 +86,26 @@ def settle(**kwargs):
 
 def namer(name, **kwargs):
     '''
-    Similar to "settle", but always consider first argument as "name".
+    Similar to :func:`settle`, but always consider first argument as *the
+    name* (i.e, assigned to `__name__`)::
+
+        >>> @namer('Identity', custom=1)
+        ... class I(object):
+        ...    pass
+
+        >>> I.__name__
+        'Identity'
+
+        >>> I.custom
+        1
     '''
     return settle(__name__=name, **kwargs)
 
 
 def aliases(**kwargs):
     '''
-    In a class, create an "AttributeAlias" descriptor for each definition
-    as keyword argument (alias=existing_attribute).
+    In a class, create an :class:`AttributeAlias` descriptor for each
+    definition as keyword argument (alias=existing_attribute).
     '''
     def inner(target):
         '''
@@ -110,9 +130,9 @@ def decorator(caller):
                 return inner
             return real_decorator
 
-    This :function:`decorator`_ reduces the need of the first level by
-    comprising both into a single function definition. However it does not
-    removes the need for an ``inner`` function::
+    This decorator reduces the need of the first level by comprising both into
+    a single function definition. However it does not removes the need for an
+    ``inner`` function::
 
         >>> @decorator
         ... def plus(target, value):
@@ -130,8 +150,8 @@ def decorator(caller):
         11
 
     A decorator with default values for all its arguments (except, of course,
-    the first one which is the decorated :param:`target`_) may be invoked without
-    parenthesis::
+    the first one which is the decorated :param:`target`_) may be invoked
+    without parenthesis::
 
         >>> @decorator
         ... def plus2(func, value=1, missing=2):
@@ -161,10 +181,11 @@ def decorator(caller):
         11
 
     However, this is not for free, you cannot pass a single positional argument
-    which type is :obj:`types.FunctionType`_::
+    which type is a function::
 
         >>> def p():
         ...    print('This is p!!!')
+
         >>> @plus2(p)
         ... def dummy():
         ...    print('This is dummy')
@@ -176,7 +197,8 @@ def decorator(caller):
     '''
     @wraps(caller)
     def outer_decorator(*args, **kwargs):
-        if len(args) == 1 and not kwargs and isinstance(args[0], (function, type)):
+        if len(args) == 1 and not kwargs and isinstance(args[0],
+                                                        (function, type)):
             # This tries to solve the case of missing () on the decorator::
             #
             #    @decorator
@@ -204,24 +226,15 @@ def decorator(caller):
 @decorator
 def assignment_operator(func, maybe_inline=False):
     '''
-    Makes a function that receives a name, and other args to be
-    *assignment_operator*, meaning that it if its used in a single assignment
-    statement the name will be taken from the left part of the ``=`` operator::
+    Makes a function that receives a name, and other args to get its first
+    argument (the name) from an assigment operation, meaning that it if its
+    used in a single assignment statement the name will be taken from the left
+    part of the ``=`` operator.
 
-        >>> @assignment_operator()
-        ... def test(name, *args):
-        ...    return name * (len(args) + 1)
-
-        >>> test('a', 1, 2)
-        'aaa'
-
-    (The following test fails because we can't get the source of the doctest;
-    so a unit test should be provided:)
-
-    ::
-        >>> b = test(1, 2)    # doctest: +SKIP
-        >>> b                 # doctest: +SKIP
-        'bbb'
+    .. warning:: This function is dependant of CPython's implementation of the
+                 language and won't probably work on other implementations.
+                 Use only you don't care about portability, but use sparingly
+                 (in case you change your mind about portability).
     '''
     import inspect
     import ast
@@ -281,11 +294,12 @@ def instantiate(target, *args, **kwargs):
 
     In all cases, Foobar remains the class, not the instance::
 
-        >>> Foobar
-        <class 'decorators.Foobar'>
+        >>> Foobar  # doctest: +ELLIPSIS
+        <class '...Foobar'>
     '''
     target(*args, **kwargs)
     return target
+
 
 
 class _SynchronizedType(type):
@@ -294,7 +308,7 @@ class _SynchronizedType(type):
         self._locks_index = OrderedDict()
         self.global_lock = self.get_lock('xoutil.synchronized.global')
         super(_SynchronizedType, self).__init__(*args, **kwargs)
-        
+
     def get_lock(self, lock):
         from threading import RLock
         if lock not in self._locks:
@@ -304,60 +318,62 @@ class _SynchronizedType(type):
             self._locks.append(l)
             self._locks_index[lock] = len(self._locks) - 1
         return self._locks[self._locks_index[lock]]
-    
+
+
 
 class synchronized(object):
     '''
-    Makes a method/function synchronized by several locks. 
-    
+    Makes a method/function synchronized by several locks.
+
     Locks may be:
-    
+
     - simple strings
     - lock objects
-    
+
     String locks are globally unique, so they are preferred over lock objects
     because it's easier to be fooled by lock objects. If no locks are provided
     a single global lock it's used. The name of this single global lock is:
     'xoutil.syncronized.global'.
-    
+
     This decorator makes sure to acquire the locks always a defined order. So
     the following two examples are equivalent:
-    
+
         >>> @synchronized('asd', 'lkj')
         ... def something():
         ...    pass
-        
+
         >>> @synchronized('lkj', 'asd')
         ... def something():
         ...    pass
-        
-    So the following function will be executed in the context of two reentrant 
+
+    So the following function will be executed in the context of two reentrant
     locks::
-    
+
         >>> @synchronized('logging', 'api')
         ... def hello(name='World'):
         ...    print('Hello %s!' % name)
-        
+
         >>> hello()
         Hello World!
-        
+
         # In the stderr console you may have received some logs about acquiring
         # and releasing locks. Check the asociated unit tests.
     '''
-    
+
     __metaclass__ = _SynchronizedType
 
     def __init__(self, *locks):
         self.locks = self.build_locks(locks)
         self.target = None
-        
+
     @classmethod
     def build_locks(cls, *locks):
-        locks = tuple(set(flatten(locks))) # Removes duplicates
+        locks = tuple(set(flatten(locks)))  # Removes duplicates
         if locks:
             for lock in (l for l in locks if l not in cls._locks_index):
                 cls.get_lock(lock)
-            res = [cls._locks[x] for lock, x in cls._locks_index.iteritems() if lock in locks]            
+            res = [cls._locks[x] for lock, x in cls._locks_index.iteritems()
+                        if lock in locks]
             return res
         else:
             return [cls.global_lock]
@@ -370,20 +386,18 @@ class synchronized(object):
         else:
             with nested(*self.locks):
                 return self.target(*args, **kwargs)
-            
 
 
-__all__ = (b'AttributeAlias',
-           b'update_wrapper',
-           b'wraps',
-           b'partial',
-           b'settle',
+
+__all__ = (b'settle',
            b'namer',
            b'curry',
            b'aliases',
            b'decorator',
+           b'instantiate',
+           b'AttributeAlias',
            b'assignment_operator',
-           b'instantiate')
+           b'synchronized')
 
 
 if __name__ == '__main__':
