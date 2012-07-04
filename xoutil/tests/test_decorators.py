@@ -33,6 +33,8 @@ __author__ = 'manu'
 import unittest
 from xoutil.decorators import assignment_operator, decorator, synchronized
 
+
+
 class TestAssignable(unittest.TestCase):
     def test_inline_expression(self):
         @assignment_operator()
@@ -66,8 +68,8 @@ class TestAssignable(unittest.TestCase):
 
         for which in (union(1, 2),):
             self.assertEqual((None, 1, 2), which)
-            
-            
+
+
     def test_argsless_decorator(self):
         @decorator
         def log(func, fmt='Calling function %s'):
@@ -75,19 +77,19 @@ class TestAssignable(unittest.TestCase):
                 print(fmt % func.__name__)
                 return func(*args, **kwargs)
             return inner
-    
+
         @log
         def hello(msg='Hi'):
             print(msg)
-            
+
         @log()
         def hi(msg='Hello'):
             print(msg)
-        
+
         hi()
         hello()
         pass
-    
+
     def test_returning_argless(self):
         @decorator
         def plus2(func, value=1):
@@ -98,15 +100,15 @@ class TestAssignable(unittest.TestCase):
         @plus2
         def ident2(val):
             return val
-        
+
         @plus2()
         def ident3(val):
             return val
-        
+
         self.assertEquals(ident2(10), 11)
         self.assertEquals(ident3(10), 11)
-        
-        
+
+
 class RegressionTests(unittest.TestCase):
     def test_with_kwargs(self):
         'When passing a function as first positional argument, kwargs should be tested empty'
@@ -114,22 +116,22 @@ class RegressionTests(unittest.TestCase):
         @decorator
         def ditmoi(target, *args, **kwargs):
             return partial(target, *args, **kwargs)
-        
+
         def badguy(n):
             return n
-        
+
         @ditmoi(badguy, b=1)
         def foobar(n, *args, **kw):
             return n
 
         self.assertEqual(badguy, foobar(1))
-        
-        
+
+
 class SynchronizedTests(unittest.TestCase):
     def test_global_order(self):
         '''
         Tests the global order of synchronized-locks to avoid deadlocks.
-        
+
         For any pair of locks l1 and l2 if both are applied to two (or more)
         functions, their relative order is the always the same: if l1 < l2
         (meaning comes before) for function 1 then l1 < l2 for function 2 and
@@ -138,40 +140,53 @@ class SynchronizedTests(unittest.TestCase):
         import random
         from xoutil.uuid import uuid
         from itertools import combinations
-        lock_names = [uuid() for _x in range(10)]
+        lock_names = [uuid()[:8] for _x in range(10)]
         locks1 = random.sample(lock_names, 8)
         locks2 = random.sample(lock_names, 8)
-        
+        print(tuple(set(locks1)))
+        print(tuple(set(locks2)))
+
         @synchronized(*locks1)
         def function1():
-            pass
+            return 1
 
         @synchronized(*locks2)
         def function2():
-            pass
-        
+            return 2
+
+        @synchronized
+        def function3():
+            return 3
+
         function1_locks = {l.name: l for l in function1.locks}
         function2_locks = {l.name: l for l in function2.locks}
-        
+
         for l1, l2 in combinations(lock_names, 2):
-            print('Testing {l1}, {l2}'.format(l1=l1, l2=l2))
             if l1 in function1_locks and l2 in function1_locks:
                 i1 = function1_locks[l1].index
                 i2 = function1_locks[l2].index
                 if l1 in function2_locks and l2 in function2_locks:
                     j1 = function2_locks[l1].index
                     j2 = function2_locks[l2].index
-                    self.assert_((i1 < i2) and (j1 < i2) or (i1 > i2) and (j1 > j2))
-                    
+                    self.assert_((i1 < i2) and (j1 < i2) or
+                                 (i1 > i2) and (j1 > j2))
+
+        self.assertEqual(1, function1())
+        self.assertEqual(3, function3())
+
+        function3_locks = {l.name: l for l in function3.locks}
+        self.assertEqual(1, len(function3_locks))
+        self.assertEquals(['xoutil.synchronized.global'], function3_locks.keys())
+
     def test_methods(self):
         class Foobar(object):
-            @synchronized()
+            @synchronized
             def method1(self, n):
                 return -n
-            
+
         foo = Foobar()
         self.assertEqual(-1, foo.method1(1))
-            
-        
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

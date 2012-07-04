@@ -325,18 +325,12 @@ class synchronized(object):
     '''
     Makes a method/function synchronized by several locks.
 
-    Locks may be:
+    Locks are simple names. Locks are globally unique. If no locks are
+    provided a single global lock it's used. The name of this single global
+    lock is: 'xoutil.syncronized.global'.
 
-    - simple strings
-    - lock objects
-
-    String locks are globally unique, so they are preferred over lock objects
-    because it's easier to be fooled by lock objects. If no locks are provided
-    a single global lock it's used. The name of this single global lock is:
-    'xoutil.syncronized.global'.
-
-    This decorator makes sure to acquire the locks always a defined order. So
-    the following two examples are equivalent:
+    This decorator makes sure to acquire the locks always in a defined order.
+    So the following two examples are equivalent::
 
         >>> @synchronized('asd', 'lkj')
         ... def something():
@@ -363,8 +357,16 @@ class synchronized(object):
     __metaclass__ = _SynchronizedType
 
     def __init__(self, *locks):
+        import types
+        is_func = lambda x: isinstance(x, (types.FunctionType,
+                                           types.MethodType))
+        if locks and is_func(locks[0]):
+            target, locks = locks[0], locks[1:]
+        else:
+            target = None
+        assert all(isinstance(l, basestring) for l in locks)
         self.locks = self.build_locks(locks)
-        self.target = None
+        self.target = target
 
     @classmethod
     def build_locks(cls, *locks):
@@ -381,8 +383,11 @@ class synchronized(object):
     def __call__(self, *args, **kwargs):
         if self.target is None:
             assert len(args) == 1 and not kwargs
-            self.target = args[0]
-            return self
+            func = self.target = args[0]
+            func = getattr(self.target, 'im_func', func)
+            result = lambda *args, **kwargs: func(*args, **kwargs)
+            result.locks = self.locks
+            return result
         else:
             with nested(*self.locks):
                 return self.target(*args, **kwargs)
