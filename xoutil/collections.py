@@ -32,6 +32,7 @@ from __future__ import (division as _py3_division,
                         absolute_import as _absolute_import)
 
 from collections import *
+from threading import local
 
 from xoutil.compat import py32 as _py32
 
@@ -102,6 +103,37 @@ class opendict(dict):
                 return self[name]
             else:
                 raise
+
+
+
+class LocalDict(object):
+    def __init__(self, *args, **kwargs):
+        self._local = local()
+
+    def __getitem__(self, key):
+        return getattr(self._local, key)
+
+    def __setitem__(self, key, value):
+        setattr(self._local, key, value)
+
+    def __iter__(self):
+        from xoutil.objects import fdir
+        return fdir(self._local)
+
+    def keys(self):
+        return list(iter(self))
+
+    def values(self):
+        return [self[k] for k in self.keys()]
+
+    def items(self):
+        return [(k, self[k]) for k in self.keys()]
+
+    def iteritems(self):
+        from xoutil.objects import xdir
+        return xdir(self._local)
+
+
 
 if not _py32:
     import sys as _sys
