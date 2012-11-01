@@ -4,11 +4,13 @@
 # util/compat.py
 #----------------
 #
-# ============================ Original copyright notice ============================
-# Copyright (C) 2005-2011 the SQLAlchemy authors and contributors <see AUTHORS file>
+# ============================ Original copyright notice ====================
+# Copyright (C) 2005-2011 the SQLAlchemy authors and contributors <see AUTHORS
+# file>
 #
 # This module is part of SQLAlchemy and is released under
 # the MIT License: http://www.opensource.org/licenses/mit-license.php
+# ============================ Original copyright notice ===================
 
 """Handle Python version/platform incompatibilities."""
 
@@ -214,3 +216,20 @@ else:
         return g
 
 import decimal
+
+
+if py3k: # pragma: no cover
+    def iteritems_(d):
+        return d.items()
+    def itervalues_(d):
+        return d.values()
+    def iterkeys_(d):
+        return d.keys()
+else:
+    def iteritems_(d):
+        return d.iteritems()
+    def itervalues_(d):
+        return d.itervalues()
+    def iterkeys_(d):
+        return d.iterkeys()
+

@@ -2,31 +2,64 @@
 #----------------------------------------------------------------------
 # xoutil.context
 #----------------------------------------------------------------------
-# Copyright (c) 2011 Merchise Autrement
+# Copyright (c) 2011, 2012 Medardo Rodríguez
 # All rights reserved.
 #
 # Author: Medardo Rodriguez
+# Contributors: see CONTRIBUTORS and HISTORY file
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-# MA 02110-1301, USA.
+# This is free software; you can redistribute it and/or modify it under the
+# terms of the LICENCE attached (see LICENCE file) in the distribution
+# package.
 #
 # Created on Mar 9, 2011
+#
+
 
 '''
 A context manager for execution context flags.
+
+Use as:
+
+    >>> from xoutil.context import context
+    >>> with context('somename'):
+    ...     if context['somename']:
+    ...         print('In context somename')
+    In context somename
+
+Note the difference creating the context and checking it.
+
+If module `zope.interface` is installed, then you may ask for
+interfaces in context::
+
+   >>> from zope.interface import Interface, implementer
+   >>> class IFoo(Interface):
+   ...    pass
+
+   >>> class IBar(IFoo):
+   ...    pass
+
+   >>> @implementer(IBar)
+   ... class Bar(object):
+   ...    pass
+
+   >>> bar = Bar()
+   >>> ham = Bar()
+
+   >>> with context(bar):
+   ...    if context[IFoo]:
+   ...        print('IFoo')
+   IFoo
+
+Notice that the context object is *not* the name::
+
+    >>> with context(bar) as ctx:
+    ...    if bar is not ctx:
+    ...        print('bar not ctx')
+    bar not ctx
+
 '''
+
 
 from __future__ import (division as _py3_division,
                         print_function as _py3_print,
@@ -34,12 +67,20 @@ from __future__ import (division as _py3_division,
 
 from threading import local
 
+from xoutil.collections import OrderedDict
+from xoutil.compat import iteritems_
+
+try:
+    from zope.interface import Interface
+except ImportError:
+    Interface = None
+
 
 
 class LocalData(local):
     def __init__(self):
         super(LocalData, self).__init__()
-        self.contexts = {}
+        self.contexts = OrderedDict()
 
 _data = LocalData()
 
@@ -47,7 +88,21 @@ _data = LocalData()
 
 class MetaContext(type):
     def __getitem__(self, name):
-        return _data.contexts.get(name, _null_context)
+        result = _data.contexts.get(name, None)
+        if result:
+            return result
+        elif Interface and not result and type(name) is type(Interface):
+            candidates = list((len(type(which).mro()), context)
+                               for which, context in iteritems_(_data.contexts)
+                               if name.providedBy(which))
+            if candidates:
+                # Returns the most specific and last
+                candidates.sort(key=lambda (depth, cls): depth, reverse=True)
+                return candidates[0][-1]
+            else:
+                return _null_context
+        else:
+            return _null_context
 
 
     def __contains__(self, name):
@@ -90,6 +145,7 @@ class Context(object):
             res.name = name
             res.data = data
             res.count = 0
+            res._events = []
         elif data:
             res.data.update(data)
         return res
@@ -106,9 +162,22 @@ class Context(object):
     def __exit__(self, exc_type, exc_value, traceback):
         self.count -= 1
         if self.count == 0:
+            for event in self.events:
+                event(self)
             del _data.contexts[self.name]
         return False
 
+
+    @property
+    def events(self):
+        return self._events
+
+    @events.setter
+    def events(self, value):
+        self._events = list(set(value))
+
+
+# A simple alias for Context
 context = Context
 
 
@@ -141,8 +210,8 @@ _null_context = NullContext()
 
 class SimpleClose(object):
     '''
-    A very simple close manager that just call the argument function exiting the
-    manager.
+    A very simple close manager that just call the argument function exiting
+    the manager.
     '''
     def __init__(self, close_funct, *args, **kwargs):
         self.close_funct = close_funct
@@ -155,4 +224,3 @@ class SimpleClose(object):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close_funct(*self.args, **self.kwargs)
         return False
-
