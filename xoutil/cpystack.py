@@ -2,7 +2,8 @@
 #----------------------------------------------------------------------
 # xoutil.cpystack
 #----------------------------------------------------------------------
-# Copyright (c) 2009-2011 Medardo Rodríguez
+# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2009-2012 Medardo Rodríguez
 # All rights reserved.
 #
 # Author: Medardo Rodriguez
@@ -13,8 +14,6 @@
 # package.
 #
 
-
-
 '''Utilities to inspect the CPython's stack.'''
 
 from __future__ import (division as _py3_division,
@@ -23,15 +22,21 @@ from __future__ import (division as _py3_division,
 
 import inspect
 
+from xoutil.names import strlist as strs
+from xoutil.compat import py3k as _py3k
+
+
+__all__ = strs('MAX_DEEP', 'getargvalues', 'object_info_finder',
+               'object_finder', 'track_value', 'iter_frames')
+del strs
 
 MAX_DEEP = 15
 
 
 def getargvalues(frame):
-    '''
-    Inspects the given frame for arguments and returns a dictionary that maps
-    parameters names to arguments values. If an `*` argument was passed then
-    the key on the returning dictionary would be formatted as
+    '''Inspects the given frame for arguments and returns a dictionary that
+    maps parameters names to arguments values. If an `*` argument was passed
+    then the key on the returning dictionary would be formatted as
     `<name-of-*-param>[index]`.
 
     For example in the function::
@@ -46,14 +51,6 @@ def getargvalues(frame):
         >>> autocontained(1, 2, -10, -11)['margs[0]']
         -10
 
-    Packed arguments also works::
-
-        >>> def nested((x, y), radius):
-        ...    import sys
-        ...    return getargvalues(sys._getframe())
-
-        >>> nested((1, 2), 12)['y']
-        2
     '''
     from xoutil.types import is_collection
     from xoutil.iterators import flatten
@@ -72,12 +69,26 @@ def getargvalues(frame):
         res.update(values[kwds])
     return res
 
+if not _py3k:
+    getargvalues.__doc__ += """
+    In Python 2.7, packed arguments also works::
+
+        >>> def nested((x, y), radius):
+        ...    import sys
+        ...    return getargvalues(sys._getframe())
+
+        >>> nested((1, 2), 12)['y']
+        2
+
+    """
+
 
 def object_info_finder(obj_type, arg_name=None, max_deep=MAX_DEEP):
-    '''
-    Find an object of the given type through all arguments in stack frames.
+    '''Find an object of the given type through all arguments in stack frames.
+
     Returns a tuple with the following values:
-    (arg-value, arg-name, deep, frame).
+        (arg-value, arg-name, deep, frame).
+
     When no object is found
     None is returned.
 
@@ -85,6 +96,7 @@ def object_info_finder(obj_type, arg_name=None, max_deep=MAX_DEEP):
         object_type: a type or a tuple of types as in "isinstance".
         arg_name: the arg_name to find; if None find in all arguments
         max_deep: the max deep to enter in the stack frames.
+
     '''
     frame = inspect.currentframe()
     try:
@@ -104,15 +116,23 @@ def object_info_finder(obj_type, arg_name=None, max_deep=MAX_DEEP):
 
 
 def object_finder(obj_type, arg_name=None, max_deep=MAX_DEEP):
+    '''Use :func:`object_info_finder` to find an object of the given type
+    through all arguments in stack frames.
+
+    The difference is that this function return the object directly, not a
+    tuple.
+
+    '''
     finder = object_info_finder(obj_type, arg_name, max_deep)
     info = finder()
     return info[0] if info else None
 
 
 def track_value(value, max_deep=MAX_DEEP):
-    '''
-    Find a value through all arguments in stack frames.
+    '''Find a value through all arguments in stack frames.
+
     Returns a dictionary with the full-context in the same level as "value".
+
     '''
     frame = inspect.currentframe().f_back.f_back
     deep = 0
@@ -128,15 +148,16 @@ def track_value(value, max_deep=MAX_DEEP):
 
 
 def iter_frames(max_deep=MAX_DEEP):
-    '''
-    Iterates through all stack frames.
+    '''Iterates through all stack frames.
 
     Returns tuples with the following::
 
         (deep, filename, line_no, start_line).
 
     .. versionadded:: 1.1.3
+
     '''
+    # TODO: [manu] Use this in all previous functions with same structure
     frame = inspect.currentframe()
     try:
         deep = 0
@@ -147,7 +168,3 @@ def iter_frames(max_deep=MAX_DEEP):
             deep += 1
     finally:
         del frame   # As recommended in the Python's doc to avoid memory leaks
-
-
-__all__ = (b'MAX_DEEP', b'getargvalues', b'object_info_finder',
-           b'object_finder', b'track_value', b'iter_frames')

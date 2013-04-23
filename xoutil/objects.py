@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 #----------------------------------------------------------------------
-# xoutil.objutil
+# xoutil.objects
 #----------------------------------------------------------------------
+# Copyright (c) 2013 Merchise Autrement and Contributors
 # Copyright (c) 2012 Medardo Rodríguez
 # All rights reserved.
 #
@@ -15,33 +16,93 @@
 #
 # Created on Feb 17, 2012
 
-'''
-Several utilities for objects in general.
-
-'''
+'''Several utilities for objects in general.'''
 
 from __future__ import (division as _py3_division,
                         print_function as _py3_print,
                         unicode_literals as _py3_unicode,
                         absolute_import)
 
+from xoutil.deprecation import deprecated
 
-from xoutil.functools import partial
-from xoutil.types import Unset, is_collection
+from xoutil.names import strlist as strs
+__all__ = strs('nameof', 'smart_getter', 'smart_getter_and_deleter', 'xdir',
+               'fdir', 'validate_attrs', 'get_first_of',
+               'get_and_del_first_of', 'smart_getattr', 'get_and_del_attr',
+               'setdefaultattr', 'full_nameof', 'copy_class', 'smart_copy',
+               'extract_attrs')
+del strs
 
 __docstring_format__ = 'rst'
 __author__ = 'manu'
-
 
 # These two functions can be use to always return True or False
 _true = lambda * args, **kwargs: True
 _false = lambda * args, **kwargs: False
 
 
+# TODO: Deprecate and restructure all its uses
+@deprecated('xoutil.names.nameof')
+def nameof(target):
+    '''Gets the name of an object.
 
-def xdir(obj, attr_filter=_true, value_filter=_true, getattr=getattr):
+    .. warning::
+
+       *Deprecated since version 1.4.0.* Use :func:`xoutil.names.nameof`.
+
     '''
-    Return all ``(attr, value)`` pairs from `obj` that ``attr_filter(attr)``
+    from xoutil.names import nameof as wrapped
+    from xoutil.compat import str_base
+    if isinstance(target, str_base):
+        return wrapped(target, depth=2, inner=True)
+    else:
+        return wrapped(target, depth=2, inner=True, typed=True)
+
+
+def smart_getter(obj):
+    '''Returns a smart getter for `obj`.
+
+    If obj is Mapping, it returns the ``.get()`` method bound to the object
+    `obj`. Otherwise it returns a partial of `getattr` on `obj` with default
+    set to None.
+
+    '''
+    from collections import Mapping
+    from xoutil.types import DictProxyType
+    if isinstance(obj, (DictProxyType, Mapping)):
+        return obj.get
+    else:
+        return lambda attr, default=None: getattr(obj, attr, default)
+
+smart_get = deprecated(smart_getter)(smart_getter)
+
+
+def smart_getter_and_deleter(obj):
+    '''Returns a function that get and deletes either a key or an attribute of
+    obj depending on the type of `obj`.
+
+    If `obj` is a `collections.Mapping` it must be a
+    `collections.MutableMapping`.
+
+    '''
+    from collections import Mapping, MutableMapping
+    from functools import partial
+    if isinstance(obj, Mapping) and not isinstance(obj, MutableMapping):
+        raise TypeError('If `obj` is a Mapping it must be a MutableMapping')
+    if isinstance(obj, MutableMapping):
+        return partial(get_and_del_key, obj)
+    else:
+        return partial(get_and_del_attr, obj)
+
+smart_get_and_del = deprecated(smart_getter_and_deleter)(smart_getter_and_deleter)
+
+
+# TODO: [manu] This is only a proposal, integrate in all these functions in ...
+#       order to use only one argument ``filter`` instead the use of
+#       ``attr_filter`` and ``value_filter``.
+#       So, ``def xdir(obj, filter=None, getter=None):``
+def xdir(obj, attr_filter=None, value_filter=None, getter=None):
+    '''Return all ``(attr, value)`` pairs from `obj` that ``attr_filter(attr)``
     and ``value_filter(value)`` are both True.
 
     :param obj: The object to be instrospected.
@@ -50,27 +111,31 @@ def xdir(obj, attr_filter=_true, value_filter=_true, getattr=getattr):
 
     :param value_filter: *optional* A filter for attribute values.
 
-    :param getattr: *optional* A function with the same signature that
-                    ``getattr`` to be used to get the values from `obj`.
+    :param getter: *optional* A function with the same signature that
+                   ``getattr`` to be used to get the values from `obj`.
 
     If neither `attr_filter` nor `value_filter` are given, all `(attr, value)`
     are generated.
 
     '''
-    attrs = (attr for attr in dir(obj) if attr_filter(attr))
-    return ((a, v) for a, v in ((a, getattr(obj, a)) for a in attrs) if value_filter(v))
+    getter = getter or getattr
+    attrs = dir(obj)
+    if attr_filter:
+        attrs = (attr for attr in attrs if attr_filter(attr))
+    res = ((a, getter(obj, a)) for a in attrs)
+    if value_filter:
+        res = ((a, v) for a, v in res if value_filter(v))
+    return res
 
 
-def fdir(obj, attr_filter=_true, value_filter=_true, getattr=getattr):
-    '''
-    Similar to :func:`xdir` but yields only the attributes names.
-    '''
-    return (attr for attr, _v in xdir(obj, attr_filter, value_filter, getattr))
+def fdir(obj, attr_filter=None, value_filter=None, getter=None):
+    '''Similar to :func:`xdir` but yields only the attributes names.'''
+    return (attr for attr, _v in xdir(obj, attr_filter, value_filter, getter))
 
 
 def validate_attrs(source, target, force_equals=(), force_differents=()):
-    '''
-    Makes a 'comparison' of `source` and `target` by its attributes (or keys).
+    '''Makes a 'comparison' of `source` and `target` by its attributes (or
+    keys).
 
     This function returns True if and only if both of these tests
     pass:
@@ -87,14 +152,14 @@ def validate_attrs(source, target, force_equals=(), force_differents=()):
         ...        for which in kwargs:
         ...            setattr(self, which, kwargs[which])
 
-        >>> source = Person(**{b'name': 'Manuel', b'age': 33, b'sex': 'male'})
-        >>> target = {b'name': 'Manuel', b'age': 4, b'sex': 'male'}
+        >>> source = Person(name='Manuel', age=33, sex='male')
+        >>> target = {'name': 'Manuel', 'age': 4, 'sex': 'male'}
 
-        >>> validate_attrs(source, target, force_equals=(b'sex',),
-        ...                force_differents=(b'age',))
+        >>> validate_attrs(source, target, force_equals=('sex',),
+        ...                force_differents=('age',))
         True
 
-        >>> validate_attrs(source, target, force_equals=(b'age',))
+        >>> validate_attrs(source, target, force_equals=('age',))
         False
 
     If both `force_equals` and `force_differents` are empty it will
@@ -104,13 +169,12 @@ def validate_attrs(source, target, force_equals=(), force_differents=()):
         True
 
     '''
-    from collections import Mapping
     from operator import eq, ne
     res = True
     tests = ((ne, force_equals), (eq, force_differents))
     j = 0
-    get_from_source = source.get if isinstance(source, Mapping) else partial(getattr, source)
-    get_from_target = target.get if isinstance(target, Mapping) else partial(getattr, target)
+    get_from_source = smart_getter(source)
+    get_from_target = smart_getter(target)
     while res and  (j < len(tests)):
         fail, attrs = tests[j]
         i = 0
@@ -125,9 +189,9 @@ def validate_attrs(source, target, force_equals=(), force_differents=()):
 
 
 def get_first_of(source, *keys, **kwargs):
-    '''
-    Return the first occurrence of any of the specified keys in `source`. If
-    `source` is a tuple, a list, a set, or a generator; then the keys are
+    '''Return the first occurrence of any of the specified keys in `source`.
+
+    If `source` is a tuple, a list, a set, or a generator; then the keys are
     searched in all the items.
 
     Examples:
@@ -185,22 +249,11 @@ def get_first_of(source, *keys, **kwargs):
         >>> get_first_of((inst, somedict), 'foobar', default=none) is none
         True
 
-    By default, we use :func:`getattr` to get attributes from objects,
-    you may customize this by providing a keyword argument `getattr`
-    with the function you want to use to get attributes from the
-    object. This function must have the same signature of
-    :func:`getattr`::
-
-        >>> f = lambda o, a, default=None: 1
-        >>> get_first_of((inst, somedict), 'foobar', getattr=f)
-        1
-
     '''
-
+    from xoutil import Unset
+    from xoutil.types import is_collection
     def inner(source):
-        from collections import Mapping
-        getattribute = kwargs.get('getattr', getattr)
-        get = source.get if isinstance(source, Mapping) else partial(getattribute, source)
+        get = smart_getter(source)
         res, i = Unset, 0
         while (res is Unset) and (i < len(keys)):
             res = get(keys[i], Unset)
@@ -208,18 +261,72 @@ def get_first_of(source, *keys, **kwargs):
         return res
 
     if is_collection(source):
-        from itertools import imap, takewhile
+        from xoutil.compat import map
+        from itertools import takewhile
         res = Unset
-        for item in takewhile(lambda item: (res is Unset), imap(inner, source)):
+        for item in takewhile(lambda _: res is Unset, map(inner, source)):
             if item is not Unset:
                 res = item
     else:
         res = inner(source)
-    default = kwargs.setdefault('default', None)
-    return res if res is not Unset else default
+    return res if res is not Unset else kwargs.get('default', None)
 
 
-def smart_getattr(name, *sources, **kw):
+def get_and_del_first_of(source, *keys, **kwargs):
+    '''Similar to :func:`get_first_of` but uses either :func:`get_and_del_attr`
+    or :func:`get_and_del_key` to get and del the first key.
+
+    Examples::
+
+        >>> somedict = dict(bar='bar-dict', eggs='eggs-dict')
+
+        >>> class Foo(object): pass
+        >>> foo = Foo()
+        >>> foo.bar = 'bar-obj'
+        >>> foo.eggs = 'eggs-obj'
+
+        >>> get_and_del_first_of((somedict, foo), 'eggs')
+        'eggs-dict'
+
+        >>> get_and_del_first_of((somedict, foo), 'eggs')
+        'eggs-obj'
+
+        >>> get_and_del_first_of((somedict, foo), 'eggs') is None
+        True
+
+        >>> get_and_del_first_of((foo, somedict), 'bar')
+        'bar-obj'
+
+        >>> get_and_del_first_of((foo, somedict), 'bar')
+        'bar-dict'
+
+        >>> get_and_del_first_of((foo, somedict), 'bar') is None
+        True
+
+    '''
+    from xoutil import Unset
+    from xoutil.types import is_collection
+    def inner(source):
+        get = smart_getter_and_deleter(source)
+        res, i = Unset, 0
+        while (res is Unset) and (i < len(keys)):
+            res = get(keys[i], Unset)
+            i += 1
+        return res
+
+    if is_collection(source):
+        res = Unset
+        source = iter(source)
+        probe = next(source, None)
+        while res is Unset and probe:
+            res = inner(probe)
+            probe = next(source, None)
+    else:
+        res = inner(source)
+    return res if res is not Unset else kwargs.get('default', None)
+
+
+def smart_getattr(name, *sources, **kwargs):
     '''Gets an attr by `name` for the first source that has it::
 
         >>> somedict = {'foo': 'bar', 'spam': 'eggs'}
@@ -234,6 +341,7 @@ def smart_getattr(name, *sources, **kw):
         >>> smart_getattr('foo', inst, somedict)
         'bar2'
 
+        >>> from xoutil import Unset
         >>> smart_getattr('fail', somedict, inst) is Unset
         True
 
@@ -241,17 +349,32 @@ def smart_getattr(name, *sources, **kw):
     :func:`get_first_of`_.
 
     '''
+    from xoutil import Unset
     from xoutil.iterators import dict_update_new
-    dict_update_new(kw, {'default': Unset})
-    return get_first_of(sources, name, **kw)
+    dict_update_new(kwargs, {'default': Unset})
+    return get_first_of(sources, name, **kwargs)
 
 
 def get_and_del_attr(obj, name, default=None):
-    '''
-    Looks for an attribute in the `obj` and returns its value and removes the
-    attribute. If the attribute is not found, `default` is returned instead.
+    '''Looks for an attribute in the `obj` and returns its value and removes
+    the attribute. If the attribute is not found, `default` is returned
+    instead.
+
+    Examples::
+
+        >>> class Foo(object):
+        ...   a = 1
+        >>> foo = Foo()
+        >>> foo.a = 2
+        >>> get_and_del_attr(foo, 'a')
+        2
+        >>> get_and_del_attr(foo, 'a')
+        1
+        >>> get_and_del_attr(foo, 'a') is None
+        True
 
     '''
+    from xoutil import Unset
     res = getattr(obj, name, Unset)
     if res is Unset:
         res = default
@@ -264,6 +387,48 @@ def get_and_del_attr(obj, name, default=None):
             except AttributeError:
                 pass
     return res
+
+
+def get_and_del_key(d, key, default=None):
+    '''Looks for a key in the dict `d` and returns its value and removes the
+    key. If the attribute is not found, `default` is returned instead.
+
+    Examples::
+
+        >>> foo = dict(a=1)
+        >>> get_and_del_key(foo, 'a')
+        1
+        >>> get_and_del_key(foo, 'a') is None
+        True
+
+    '''
+    from xoutil import Unset
+    res = d.get(key, Unset)
+    if res is Unset:
+        res = default
+    else:
+        try:
+            del d[key]
+        except IndexError:
+            pass
+    return res
+
+
+class lazy(object):
+    '''Marks a value as a lazily evaluated value. See
+    :func:`setdefaultattr`.
+
+    '''
+    def __init__(self, value):
+        self.value = value
+
+    def __call__(self):
+        from xoutil.compat import callable
+        res = self.value
+        if callable(res):
+            return res()
+        else:
+            return res
 
 
 def setdefaultattr(obj, name, value):
@@ -281,53 +446,260 @@ def setdefaultattr(obj, name, value):
         >>> setdefaultattr(inst, 'spam', 'with ham')
         'egg'
 
+    (`New in version 1.2.1`). If you want the value to be lazily evaluated you
+    may provide a lazy-lambda::
+
+        >>> inst = Someclass()
+        >>> inst.a = 1
+        >>> def setting_a():
+        ...    print('Evaluating!')
+        ...    return 'a'
+
+        >>> setdefaultattr(inst, 'a', lazy(setting_a))
+        1
+
+        >>> setdefaultattr(inst, 'ab', lazy(setting_a))
+        Evaluating!
+        'a'
+
     '''
+    from xoutil import Unset
     res = getattr(obj, name, Unset)
     if res is Unset:
+        if isinstance(value, lazy):
+            value = value()
         setattr(obj, name, value)
         res = value
     return res
 
 
-def nameof(target):
-    '''Gets the name of an object:
+# TODO: Use "xoutil.names.nameof" with "full=True, inner=True, typed=True"
+@deprecated('xoutil.names.nameof')
+def full_nameof(target):
+    '''Gets the full name of an object:
 
-    - The name of a string is the same string::
+    .. warning::
 
-        >>> nameof('manuel')
-        'manuel'
-
-    - The name of an object with a ``__name__`` attribute is its
-      value::
-
-        >>> nameof(type)
-        'type'
-
-        >>> class Someclass: pass
-        >>> nameof(Someclass)
-        'Someclass'
-
-    - The name of any other object is the ``__name__`` of the its
-      type::
-
-        >>> nameof([1, 2])
-        'list'
-
-        >>> nameof((1, 2))
-        'tuple'
-
-        >>> nameof({})
-        'dict'
+       *Deprecated since 1.4.0*. Use :func:`xoutil.names.nameof` with the
+       `full` argument.
 
     '''
-    if isinstance(target, basestring):
+    from xoutil.compat import py3k, str_base
+    if isinstance(target, str_base):
         return target
     else:
         if not hasattr(target, '__name__'):
             target = type(target)
-        return target.__name__
+        res = target.__name__
+        mod = getattr(target, '__module__', '__')
+        if not mod.startswith('__') and (not py3k or mod != 'builtins'):
+            res = '.'.join((mod, res))
+        return res
 
 
-__all__ = (b'xdir', b'fdir', b'validate_attrs', b'get_first_of',
-           b'smart_getattr', b'get_and_del_attr', b'setdefaultattr',
-           b'nameof')
+def copy_class(cls, meta=None, ignores=None, **new_attrs):
+    '''Copies a class definition to a new class.
+
+    :param meta: If None, the `type(cls)` of the class is used to build the new
+                 class, otherwise this must be a *proper* metaclass.
+
+
+    :param ignores: A (sequence of) string, glob-pattern, or regexp for
+                    attributes names that should not be copied to new class.
+
+                    If the strings begins with "(?" it will be considered a
+                    regular expression string representation, if it does not
+                    but it contains any wild-char it will be considered a
+                    glob-pattern, otherwise is the exact name of the ignored
+                    attribute.
+
+                    Any ignored that is not a string **must** be an object with
+                    a `match(attr)` method that must return a non-null value if
+                    the the `attr` should be ignored. For instance, a regular
+                    expression object.
+
+    :param new_attrs: New attributes the class must have. These will take
+                      precedence over the attributes in the original class.
+
+    .. versionadded:: 1.4.0
+
+    '''
+    from xoutil.fs import _get_regex
+    from xoutil.compat import str_base, iteritems_
+    # TODO: [manu] "xoutil.fs" is more specific module than this one. So ...
+    #       isn't correct to depend on it. Migrate part of "_get_regex" to a
+    #       module that can be imported logically without problems from both,
+    #       this and "xoutil.fs".
+    from xoutil.types import MemberDescriptorType
+    if not meta:
+        meta = type(cls)
+    if isinstance(ignores, str_base):
+        ignores = (ignores, )
+        ignores = tuple((_get_regex(i) if isinstance(i, str_base) else i) for i in ignores)
+        ignored = lambda name: any(ignore.match(name) for ignore in ignores)
+    else:
+        ignored = None
+    attrs = {name: value
+             for name, value in iteritems_(cls.__dict__)
+             if name not in ('__class__', '__mro__', '__name__', '__weakref__')
+             # Must remove member descriptors, otherwise the old's class
+             # descriptor will override those that must be created here.
+             if not isinstance(value, MemberDescriptorType)
+             if ignored is None or not ignored(name)}
+    attrs.update(new_attrs)
+    result = meta(cls.__name__, cls.__bases__, attrs)
+    return result
+
+
+# Real signature is (*sources, target, filter=None) where target is a
+# positional argument, and not a keyword.
+# TODO: First look up "target" in keywords and then in positional arguments.
+def smart_copy(*args, **kwargs):
+    '''Copies the first apparition of attributes (or keys) from `sources` to
+    `target`.
+
+    :param sources: The objects from which to extract keys or attributes.
+
+    :param target: The object to fill.
+
+    :param defaults: Default values for the attributes to be copied as explained
+                     below. Defaults to False.
+
+    :type defaults: Either a bool, a dictionary, an iterable or a callable.
+
+    Every `sources` and `target` are always positional arguments. There should
+    be at least one source. `target` will always be the last positional
+    argument, unless:
+
+    - `defaults` is not provided as a keyword argument, and
+
+    - there are at least 3 positional arguments and
+
+    - the last positional argument is either None, True, False or a *function*,
+
+    then `target` is the next-to-last positional argument and `defaults` is the
+    last positional argument. Notice that passing a callable that is not a
+    function is possible only with a keyword argument. If this is too
+    confusing, pass `defaults` as a keyword argument.
+
+    If `defaults` is a dictionary or an iterable then only the names provided
+    by itering over `defaults` will be copied. If `defaults` is a dictionary,
+    and one of its key is not found in any of the `sources`, then the value of
+    the key in the dictionary is copied to `target` unless:
+
+    - It's the value :class:`xoutil.types.Required` or an instance of Required.
+
+    - An exception object
+
+    - A sequence with is first value being a subclass of Exception. In which
+      case :class:`xoutil.data.adapt_exception` is used.
+
+    In these cases a KeyError is raised if the key is not found in the sources.
+
+    If `default` is an iterable and a key is not found in any of the sources,
+    None is copied to `target`.
+
+    If `defaults` is a callable then it should receive one positional arguments
+    for the current `attribute name` and several keyword arguments (we pass
+    ``source``) and return either True or False if the attribute should be
+    copied.
+
+    If `defaults` is False (or None) only the attributes that do not start with
+    a "_" are copied, if it's True all attributes are copied.
+
+    When `target` is not a mapping only valid Python identifiers will be
+    copied.
+
+    Each `source` is considered a mapping if it's an instance of
+    `collections.Mapping` or a DictProxyType.
+
+    The `target` is considered a mapping if it's an instance of
+    `collections.MutableMapping`.
+
+    :returns: `target`.
+
+    '''
+    from collections import Mapping, MutableMapping
+    from xoutil.compat import callable, str_base
+    from xoutil.types import Unset, Required, DictProxyType
+    from xoutil.types import FunctionType as function
+    from xoutil.types import is_collection
+    from xoutil.data import adapt_exception
+    from xoutil.validators.identifiers import is_valid_identifier
+    defaults = get_and_del_key(kwargs, 'defaults', default=Unset)
+    if kwargs:
+        raise TypeError('smart_copy does not accept a "%s" keyword argument'
+                        % kwargs.keys()[0])
+    if defaults is Unset and len(args) >= 3:
+        args, last = args[:-1], args[-1]
+        if isinstance(last, bool) or isinstance(last, function):
+            defaults = last
+            sources, target = args[:-1], args[-1]
+        else:
+            sources, target, defaults = args, last, False
+    else:
+        if defaults is Unset:
+            defaults = False
+        sources, target = args[:-1], args[-1]
+    if not sources:
+        raise TypeError('smart_copy requires at least one source')
+    if isinstance(target, (bool, type(None), int, float, str_base)):
+        raise TypeError('target should be a mutable object, not %s' %
+                        type(target))
+    if isinstance(target, MutableMapping):
+        def setter(key, val):
+            target[key] = val
+    else:
+        def setter(key, val):
+            if is_valid_identifier(key):
+                setattr(target, key, val)
+    is_mapping = isinstance(defaults, Mapping)
+    if is_mapping or is_collection(defaults):
+        for key, val in ((key, get_first_of(sources, key, default=Unset))
+                         for key in defaults):
+            if val is Unset:
+                if is_mapping:
+                    val = defaults.get(key, None)
+                else:
+                    val = None
+                exc = adapt_exception(val, key=key)
+                if exc or val is Required or isinstance(val, Required):
+                    raise KeyError(key)
+            setter(key, val)
+    else:
+        keys = []
+        for source in sources:
+            get = smart_getter(source)
+            if isinstance(source, (Mapping, DictProxyType)):
+                items = (name for name in source)
+            else:
+                items = dir(source)
+            for key in items:
+                if defaults is False and key.startswith('_'):
+                    copy = False
+                elif isinstance(defaults, function):
+                    copy = defaults(key, source=source)
+                else:
+                    copy = True
+                if key not in keys:
+                    keys.append(key)
+                    if copy:
+                        setter(key, get(key))
+    return target
+
+
+def extract_attrs(obj, *names, **kwargs):
+    '''Returns a tuple of the `names` from an object.
+
+    If `obj` is a Mapping, the names will be search in the keys of the `obj`;
+    otherwise the names are considered regular attribute names.
+
+    If `default` is Unset and one attribute is not found an AttributeError (or
+    KeyError) is raised, otherwise the `default` is used instead.
+
+    .. versionadded:: 1.4.0
+
+    '''
+    from xoutil.objects import smart_getter
+    get = smart_getter(obj)
+    return tuple(get(attr, **kwargs) for attr in names)

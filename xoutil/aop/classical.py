@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.aop.classical
 #----------------------------------------------------------------------
-# Copyright (c) 2012 Medardo Rodríguez
+# Copyright (c) 2012, 2013 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # Author: Manuel Vázquez Acosta
@@ -15,9 +15,8 @@
 #
 # Created on Apr 26, 2012
 
-'''
-This module provides a very simple and classical way to weave 'aspect classes'
-into your own classes/modules.
+'''This module provides a very simple and classical way to weave 'aspect
+classes' into your own classes/modules.
 
 This "classical" approach is different from the basic approach in
 :py:mod:`~xoutil.aop.basic` in that this one is meant to apply changes to the
@@ -25,32 +24,37 @@ behavior of objects that endure beyond any given context of execution. Once a
 class/module has been weaved, it will remain weaved forever.
 
 Also, this implementation does not (can't) weave built-in types.
+
 '''
 
 from __future__ import (division as _py3_division,
                         print_function as _py3_print,
                         unicode_literals as _py3_unicode,
-                        absolute_import)
+                        absolute_import as _py3_abs_import)
+
 
 import types
 from functools import wraps as _wraps, partial
 
+from xoutil import Unset
 from xoutil.compat import inspect_getfullargspec
-from xoutil.types import Unset
+
+from xoutil.names import strlist as strs
+__all__ = strs('weave', 'StopExceptionChain')
+del strs
 
 
 __docstring_format__ = 'rst'
 __author__ = 'manu'
 
 
-__all__ = (b'StopExceptionChain', 'weave')
-
-
 def wraps(target):
-    'Hacks functools.wraps to bypass wrapper descriptors (for __repr__, etc.)'
-    class Foo(object):
-        pass
-    if type(target) is not type(Foo.__repr__):
+    '''Hacks functools.wraps to bypass wrapper descriptors (for __repr__,
+    etc.)
+
+    '''
+    from xoutil.types import is_slotwrapper
+    if not is_slotwrapper(target):
         return _wraps(target)
     else:
         return target
@@ -60,76 +64,91 @@ class StopExceptionChain(Exception):
     pass
 
 
-
 def _filter_args_byspec(method, *args, **kwargs):
+    from xoutil.objects import get_first_of
     spec = inspect_getfullargspec(method)
     if not spec.varargs:
         args = ()
-    if not spec.keywords:
+    # XXX: [manu] In Python 3.2, the FullArgsSpec named tuple does not have a
+    # keywords attribute, but a varkw and both kwonlyargs and
+    # kwonlydefaults.
+    #
+    # Since spec is a named tuple, it must be enclosed in an outer tuple.
+    keywords = get_first_of((spec, ), 'keywords', 'varkw')
+    if not keywords:
         kwargs = {}
     return (args, kwargs)
 
 
-
-def _getattr(obj, attr, default=Unset):
-    try:
-        if default is not Unset:
-            return getattr(obj, attr, default)
+# TODO: [manu] This is repeated in "xoutil.proxy"
+def _mro_getattr(obj, attr, default=Unset):
+    '''Gets the attr from obj's MRO'''
+    from xoutil.types import mro_dict
+    unset = object()
+    res = mro_dict(obj).get(attr, unset)
+    if res is unset:
+        if default is Unset:
+            raise AttributeError(attr)
         else:
-            return getattr(obj, attr)
-    except AttributeError:
-        raise
-    except:
-        if default is not Unset:
             return default
-        else:
-            # TODO: [manu] Write a proper message.
-            raise AttributeError('Object {o!r} has not attribute {a!r}'.format(o=obj, a=attr))
+    else:
+        return res
+_mro_getattrdef = partial(_mro_getattr, default=None)
 
 
-__getattr = partial(_getattr, default=None)
-
-
-
-def get_staticattr(obj, name, default=None):
-    value = _getattr(obj, name, default)
-    if isinstance(value, types.MethodType):
-        value = value.im_func
+def get_staticattr(obj, attr, default=None):
+    '''Gets the attribute `attr` by using `getattr`.'''
+    value = getattr(obj, attr, default)
+    # XXX: In Python 2.7, this may return a bound/unbound method, with a
+    #      im_func.
+    value = getattr(value, 'im_func', value)
     return value
 
 
-
 def bind_method(method, *args, **kwargs):
-    if isinstance(method, types.MethodType):
+    '''Returns the method to be called already bound to self if needed'''
+    from xoutil.types import is_instancemethod, is_classmethod, is_staticmethod
+    if is_instancemethod(method):
         self = args[0]
         args = args[1:]
-        bound_method = types.MethodType(method.im_func, self, type(self))
+        bound_method = _wraps(method)(lambda *args, **kwargs: method(self,
+                                                                    *args,
+                                                                    **kwargs))
+    elif is_classmethod(method):
+        self = args[0]
+        args = args[1:]
+        bound_method = _wraps(method.__func__)(lambda *a, **kw:
+                                               method.__func__(self,
+                                                               *a,
+                                                               **kw))
     else:
-        # TODO: This fails with staticmethod called with self.
+        try:
+            assert is_staticmethod(method)
+        except:
+            print(method, is_classmethod(method))
+            raise
         self = None
-        bound_method = method
+        bound_method = method.__func__
     return self, bound_method, args, kwargs
 
 
-
 def build_method(method, inner):
-    if isinstance(method, types.MethodType):
-        return types.MethodType(inner, method.im_self, method.im_class)
+    from xoutil.types import is_staticmethod, is_classmethod
+    if is_staticmethod(method):
+        return staticmethod(inner)
+    elif is_classmethod(method):
+        return classmethod(inner)
     else:
-        # This means is either a simple function inside a module
-        # or is staticmethod.
         return inner
-
 
 
 def _weave_after_method(target, aspect, method_name,
                         after_method_name='_after_{method_name}'):
-    '''
-    Tries to weave an after method given by `method_name` defined (by
-    name convention) in `aspect` into the class `target`.
+    '''Weaves an after method given by `method_name` defined (by name
+    convention) in `aspect` into the class `target`.
 
     The following two classes define a single method `echo`. The second class
-    may raise `ZeroDivisionError`s.
+    may raise `ZeroDivisionError`s::
 
         >>> class GoodClass(object):
         ...    def echo(self, what):
@@ -141,17 +160,17 @@ def _weave_after_method(target, aspect, method_name,
 
         >>> class BadClass(object):
         ...    def echo(self, what):
-        ...        return (what+1)/what
+        ...        return (what+1)//what
 
         >>> good_instance = GoodClass()
         >>> good_instance.echo(0)
         0
 
         >>> bad_instance = BadClass()
-        >>> bad_instance.echo(0)
+        >>> bad_instance.echo(0)               # doctest: +ELLIPSIS
         Traceback (most recent call last):
             ...
-        ZeroDivisionError: integer division or modulo by zero
+        ZeroDivisionError: ...
 
     Now, let's define a simple class that defines an _after_echo and weave the
     previous classes::
@@ -159,9 +178,11 @@ def _weave_after_method(target, aspect, method_name,
         >>> class Logging(object):
         ...    def _after_echo(self, method, result, exc_value):
         ...        if not exc_value:
-        ...            print('Method {m} returned {result!r}'.format(m=method, result=result))
+        ...            print('Method {m} returned {result!r}'.
+        ...                  format(m=method, result=result))
         ...        else:
-        ...            print('When calling method {m}, {exc!r} was raised!'.format(m=method, exc=exc_value))
+        ...            print('When calling method {m}, {exc!r} was raised!'.
+        ...                  format(m=method, exc=exc_value))
         ...        return result
         ...
         ...    def _after_superecho(self, method, result, exc_value):
@@ -173,7 +194,7 @@ def _weave_after_method(target, aspect, method_name,
         >>> _weave_after_method(BadClass, Logging, 'echo')
 
     After weaving every instance (even those that already exists) will behave
-    with the new funcionality included::
+    with the new functionality included::
 
         >>> good_instance.echo(0)       # doctest: +ELLIPSIS
         Method <...> returned 0
@@ -186,8 +207,8 @@ def _weave_after_method(target, aspect, method_name,
         ZeroDivisionError: integer division or modulo by zero
 
         # Class methods remains classmethods
-        >>> good_instance.superecho(0)
-        <type 'type'>
+        >>> good_instance.superecho(0)  # doctest: +ELLIPSIS
+        <...'type'>
         0
 
     You may define another 'aspect' elsewhere an weave it on top::
@@ -226,15 +247,21 @@ def _weave_after_method(target, aspect, method_name,
         >>> Security.current_user = 'other'
         >>> good_instance.echo(0)                        # doctest: +ELLIPSIS
         Method <...> returned 0
+
     '''
-    method = _getattr(target, method_name, None)
+    from xoutil.types import is_module
+    if is_module(target):
+        method = getattr(target, method_name, None)
+    else:
+        method = _mro_getattr(target, method_name, None)
     after_method_name = after_method_name.format(method_name=method_name)
     after_method = get_staticattr(aspect, after_method_name, None)
 
     if method and after_method:
-        @wraps(method)
+        @wraps(getattr(method, '__func__', method))
         def inner(*args, **kwargs):
-            self, bound_method, args, kwargs = bind_method(method, *args, **kwargs)
+            self, bound_method, args, kwargs = bind_method(method,
+                                                           *args, **kwargs)
             try:
                 # We don't need to pass self to a bound method
                 result = bound_method(*args, **kwargs)
@@ -244,8 +271,10 @@ def _weave_after_method(target, aspect, method_name,
             else:
                 exc_value = None
             try:
-                after_args, after_kw = _filter_args_byspec(after_method, *args, **kwargs)
-                result = after_method(self, method, result, exc_value, *after_args, **after_kw)
+                after_args, after_kw = _filter_args_byspec(after_method,
+                                                           *args, **kwargs)
+                result = after_method(self, method, result, exc_value,
+                                      *after_args, **after_kw)
                 if exc_value:
                     raise exc_value
                 else:
@@ -261,15 +290,13 @@ def _weave_after_method(target, aspect, method_name,
         setattr(target, method_name, wrapper)
 
 
-
 def _weave_before_method(target, aspect, method_name,
                          before_method_name='_before_{method_name}'):
-    '''
-    Tries to weave a before method given by `method_name` defined (by
-    name convention) in `aspect` into the class `target`.
+    '''Tries to weave a before method given by `method_name` defined (by name
+    convention) in `aspect` into the class `target`.
 
     The following two classes define a single method `echo`. The second class
-    may raise `ZeroDivisionError`s.
+    may raise `ZeroDivisionError`s::
 
         >>> class GoodClass(object):
         ...    def echo(self, what):
@@ -277,17 +304,17 @@ def _weave_before_method(target, aspect, method_name,
 
         >>> class BadClass(object):
         ...    def echo(self, what):
-        ...        return (what+1)/what
+        ...        return (what+1)//what
 
         >>> good_instance = GoodClass()
         >>> good_instance.echo(0)
         0
 
         >>> bad_instance = BadClass()
-        >>> bad_instance.echo(0)
+        >>> bad_instance.echo(0)    # doctest: +ELLIPSIS
         Traceback (most recent call last):
             ...
-        ZeroDivisionError: integer division or modulo by zero
+        ZeroDivisionError: ...
 
     The following class defines a Security aspect that allows the execution of
     methods by user::
@@ -319,8 +346,10 @@ def _weave_before_method(target, aspect, method_name,
 
     Now let's apply our security aspect::
 
-        >>> _weave_before_method(GoodClass, Security, 'echo', 'check_execution_permissions')
-        >>> _weave_before_method(BadClass, Security, 'echo', 'check_execution_permissions')
+        >>> _weave_before_method(GoodClass, Security,
+        ...                      'echo', 'check_execution_permissions')
+        >>> _weave_before_method(BadClass, Security,
+        ...                      'echo', 'check_execution_permissions')
 
     Now 'manu' may still execute the 'echo' method for both GoodClass and
     BadClass instances::
@@ -334,12 +363,13 @@ def _weave_before_method(target, aspect, method_name,
     Other users are not allowed::
 
         >>> Security.current_user = 'other'
-        >>> bad_instance.echo(0) # If allowed it would raise a ZeroDivisionError
+        >>> bad_instance.echo(0) # If allowed it'd raise a ZeroDivisionError
         Traceback (most recent call last):
             ...
         Exception: Forbidden
+
     '''
-    method = _getattr(target, method_name, None)
+    method = _mro_getattr(target, method_name, None)
     before_method_name = before_method_name.format(method_name=method_name)
     before_method = get_staticattr(aspect, before_method_name, None)
 
@@ -358,11 +388,9 @@ def _weave_before_method(target, aspect, method_name,
         setattr(target, method_name, wrapped)
 
 
-
 def _weave_around_method(cls, aspect, method_name,
                           around_method_name='_around_{method_name}'):
-    '''
-    Simply put, replaces a method by another.
+    '''Simply put, replaces a method by another::
 
         >>> class OriginalClass(object):
         ...    def echo(self, what):
@@ -373,11 +401,11 @@ def _weave_around_method(cls, aspect, method_name,
 
         >>> class Logger(object):
         ...    def _around_any(self, method, *args, **kwargs):
-        ...        print('Calling {m} with {args}, {kwargs}'.format(m=method,
-        ...                                                         args=args,
-        ...                                                         kwargs=kwargs))
+        ...        print('Calling {m} with {args}, {kwargs}'.
+        ...              format(m=method, args=args, kwargs=kwargs))
         ...        result = method(*args, **kwargs)
-        ...        print('... and {result!r} was returned'.format(result=result))
+        ...        print('... and {result!r} was returned'.
+        ...              format(result=result))
         ...        return self.superecho(result)
 
         >>> obj = OriginalClass()
@@ -387,11 +415,12 @@ def _weave_around_method(cls, aspect, method_name,
         >>> _weave_around_method(OriginalClass, Logger, 'echo', '_around_any')
 
         >>> obj.echo(10)            # doctest: +ELLIPSIS
-        Calling <...> with (10,), {}
+        Calling ... with (10,), {}
         ... and 10 was returned
         100
+
     '''
-    method = _getattr(cls, method_name, None)
+    method = _mro_getattr(cls, method_name, None)
     around_method_name = around_method_name.format(method_name=method_name)
     around_method = get_staticattr(aspect, around_method_name, None)
 
@@ -406,11 +435,10 @@ def _weave_around_method(cls, aspect, method_name,
         setattr(cls, method_name, wrapped)
 
 
-
 _method_name = lambda attr: attr[attr[1:].find('_') + 2:]
-_not = lambda func: (lambda *args, **kwargs: not func(*args, **kwargs))
-_and = lambda *preds: (lambda *args, **kwargs: all(p(*args, **kwargs) for p in preds))
-_or = lambda *preds: (lambda *args, **kwargs: any(p(*args, **kwargs) for p in preds))
+_not = lambda func: (lambda *a, **kw: not func(*a, **kw))
+_and = lambda *preds: (lambda *a, **kw: all(p(*a, **kw) for p in preds))
+_or = lambda *preds: (lambda *a, **kw: any(p(*a, **kw) for p in preds))
 
 _private = lambda attr: attr.startswith('_')
 _aspect_method = lambda attr: any(attr.startswith(prefix) and attr != prefix
@@ -421,40 +449,51 @@ _aspect_method = lambda attr: any(attr.startswith(prefix) and attr != prefix
 _public = lambda attr: not attr.startswith('_')
 
 
+def weave(aspect, target, *ignored):
+    '''Weaves an aspect into `target`. The weaving involves:
 
-def weave(aspect, target):
-    '''
-    Weaves an aspect into `target`. The weaving involves:
+    - First every public attribute from `aspect` that is not an after method,
+      before method, or around method is injected into `target`.
 
-    - First every public attribute from `aspect` that is not an after
-      method, before method, or around method is injected into `target`.
+    - Then, we weave any after, before and around methods into `target` if
+      there's a matching method.
 
-    - Then, we weave any after, before and arounds methods into
-      `target` if there's a matching method.
-
-    - Lastly, if there's a `_after_` method in `aspect` it is weaved into
-      all *public* methods of `target` (even those which were injected and
-      weaved previously).
+    - Lastly, if there's a `_after_` method in `aspect` it is weaved into all
+      *public* methods of `target` (even those which were injected and weaved
+      previously).
 
       The same is done for `_before_` and `_around_`.
 
     Since the introduction :py:mod:`xoutil.aop.extended` this method might look
     for a `_before_weave` or a `_around_weave` method in `aspect`; which allow
     aspects to hook this method.
+
+    :param aspect: The aspect class.
+    :param target: The class to be weaved
+
+    :param ignored: Any attribute name passed in `ignored` is not weaved.
+
+                    .. versionadded:: 1.1.6
+
     '''
     from xoutil.objects import fdir
+    from xoutil.iterators import flatten
+    ignored = tuple(flatten(ignored))
     # Inject all public, non-aspect method
-    for attr in fdir(aspect, _and(_public, _not(_aspect_method)), getattr=__getattr):
+    for attr in fdir(aspect, _and(_public, _not(_aspect_method)),
+                     getter=_mro_getattrdef):
         setattr(target, attr, get_staticattr(aspect, attr))
     # Weave aspect methods but keep an order scheme:
     #     afters < before < around
-    key = lambda n: (not callable(_getattr(aspect, n, None)),
+    key = lambda n: (not callable(_mro_getattr(aspect, n, None)),
                      not n.startswith('_after_'),
                      not n.startswith('_before_'),
                      not n.startswith('_around_'),)
-    for attr in sorted(fdir(aspect, _aspect_method, callable, getattr=__getattr),
+    for attr in sorted(fdir(aspect, _aspect_method, callable,
+                            getter=_mro_getattrdef),
                        key=key):
-        ok = lambda what: attr.startswith('_' + what + '_')
+        ok = lambda what: (attr.startswith('_' + what + '_') and
+                           attr not in ignored)
         if ok('after'):
             _weave_after_method(target, aspect, _method_name(attr))
         elif ok('before'):
@@ -465,11 +504,14 @@ def weave(aspect, target):
     method = lambda maybe: isinstance(maybe, (types.MethodType,
                                               types.FunctionType))
     if '_after_' in aspect_dict:
-        for attr in fdir(target, attr_filter=_public, value_filter=method, getattr=__getattr):
+        for attr in fdir(target, attr_filter=_public, value_filter=method,
+                         getter=_mro_getattrdef):
             _weave_after_method(target, aspect, attr, '_after_')
     if '_before_' in aspect_dict:
-        for attr in fdir(target, attr_filter=_public, value_filter=method, getattr=__getattr):
+        for attr in fdir(target, attr_filter=_public, value_filter=method,
+                         getter=_mro_getattrdef):
             _weave_before_method(target, aspect, attr, '_before_')
     if '_around_' in aspect_dict:
-        for attr in fdir(target, attr_filter=_public, value_filter=method, getattr=__getattr):
+        for attr in fdir(target, attr_filter=_public, value_filter=method,
+                         getter=_mro_getattrdef):
             _weave_around_method(target, aspect, attr, '_around_')

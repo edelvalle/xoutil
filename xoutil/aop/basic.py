@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.aop.basic
 #----------------------------------------------------------------------
-# Copyright (c) 2012 Medardo Rodríguez
+# Copyright (c) 2012, 2013 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # Author: Medardo Rodríguez
@@ -40,7 +40,10 @@ from __future__ import (division as _py3_division,
 from types import MethodType, FunctionType
 from contextlib import contextmanager
 
-from xoutil.objects import xdir
+from xoutil.names import strlist as strs
+__all__ = strs('complementor', 'contextualized', 'inject_dependencies',
+               'weaved')
+del strs
 
 __docstring_format__ = 'rst'
 __author__ = 'Medardo Rodriguez'
@@ -55,16 +58,20 @@ def _update(attrs, *sources):
     - For every source that is a class, it's public attributes and all methods
       are updated into attrs.
     '''
-    attrs.update({f.__name__: f for f in sources
-                  if not isinstance(f, type) and getattr(f, '__name__',
-                                                         False)})
-    attrs.update({name: getattr(a, 'im_func', a) for f in sources
-                        if isinstance(f, type)
-                    for name, a in xdir(f)
-                        if not name.startswith('_') or
-                            getattr(a, 'im_func', False)})
-    return attrs
+    from xoutil.compat import class_types, iteritems_
+    attrs.update({str(f.__name__): f for f in sources
+                  if (not isinstance(f, class_types) and
+                      getattr(f, '__name__', False))})
 
+    attrs.update({str(name): member
+                  for cls in sources if isinstance(cls, class_types)
+                  # XXX: [manu] Use cls.__dict__ instead of xdir(cls) since
+                  # getattr(cls, attr) would not yield the classmethod and
+                  # staticmethod wrappers.
+                  for name, member in iteritems_(cls.__dict__)
+                  if not name.startswith('_') or
+                     isinstance(member, FunctionType)})
+    return attrs
 
 
 def complementor(*sources, **attrs):
@@ -89,11 +96,12 @@ def complementor(*sources, **attrs):
         ...    print('Hacked')
         ...    self._super___init__(*args, **kw)
 
-        >>> @complementor(somedict={'a': 1, 'b': 2}, somelist=range(5, 10),
+        >>> from xoutil.compat import range_
+        >>> @complementor(somedict={'a': 1, 'b': 2}, somelist=range_(5, 10),
         ...               __init__=hacked_init)
         ... class Someclass(object):
         ...     somedict = {'a': 0}
-        ...     somelist = range(5)
+        ...     somelist = range_(5)
         ...
         ...     def __init__(self, d=None, l=None):
         ...         'My docstring'
@@ -140,12 +148,18 @@ def complementor(*sources, **attrs):
         from collections import (Mapping, MutableMapping,
                                  MutableSequence as List,
                                  Set)
-        from xoutil.types import Unset
-        for attr, value in attrs.iteritems():
+        from xoutil import Unset
+        from xoutil.compat import iteritems_
+        for attr, value in iteritems_(attrs):
+            attr = str(attr)
             assigned = attr in cls.__dict__
             if assigned:
                 ok = isinstance
-                current = getattr(cls, attr)
+                # XXX: [manu] In order to be Python 2 and 3 compatible is best
+                # to get things from the class' dictionary, then current would
+                # be a function for methods, a classmethod for classmethods and
+                # a staticmethod for staticmethods.
+                current = cls.__dict__.get(attr, None)
                 if ok(value, Mapping) and ok(current, MutableMapping):
                     current.update(value)
                     value = Unset
@@ -156,13 +170,11 @@ def complementor(*sources, **attrs):
                     value = current + value
                 elif ok(value, Set) and ok(current, Set):
                     value = current | value
-                elif ok(value, (FunctionType, MethodType)) and current:
-                    setattr(cls, b'_super_%s' % attr, current)
+                elif ok(value, (FunctionType, classmethod, staticmethod)) and current:
+                    setattr(cls, str('_super_%s') % attr, current)
             else:
                 current = None
             if value is not Unset:
-                if isinstance(value, MethodType):
-                    value = value.im_func
                 if current and not getattr(value, '__doc__', False):
                     from functools import update_wrapper
                     update_wrapper(value, current)
@@ -171,7 +183,6 @@ def complementor(*sources, **attrs):
 
     _update(attrs, *sources)
     return inner
-
 
 
 def contextualized(context, *sources, **attrs):

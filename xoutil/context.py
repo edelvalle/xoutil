@@ -2,6 +2,7 @@
 #----------------------------------------------------------------------
 # xoutil.context
 #----------------------------------------------------------------------
+# Copyright (c) 2013 Merchise Autrement and Contributors
 # Copyright (c) 2011, 2012 Medardo Rodríguez
 # All rights reserved.
 #
@@ -19,109 +20,49 @@
 '''
 A context manager for execution context flags.
 
-Use as:
-
-    >>> from xoutil.context import context
-    >>> with context('somename'):
-    ...     if context['somename']:
-    ...         print('In context somename')
-    In context somename
-
-Note the difference creating the context and checking it.
-
-If module `zope.interface` is installed, then you may ask for
-interfaces in context::
-
-   >>> from zope.interface import Interface, implementer
-   >>> class IFoo(Interface):
-   ...    pass
-
-   >>> class IBar(IFoo):
-   ...    pass
-
-   >>> @implementer(IBar)
-   ... class Bar(object):
-   ...    pass
-
-   >>> bar = Bar()
-   >>> ham = Bar()
-
-   >>> with context(bar):
-   ...    if context[IFoo]:
-   ...        print('IFoo')
-   IFoo
-
-Notice that the context object is *not* the name::
-
-    >>> with context(bar) as ctx:
-    ...    if bar is not ctx:
-    ...        print('bar not ctx')
-    bar not ctx
-
 '''
 
 
 from __future__ import (division as _py3_division,
                         print_function as _py3_print,
-                        unicode_literals as _py3_unicode)
+                        unicode_literals as _py3_unicode,
+                        absolute_import as _py3_abs_import)
+
 
 from threading import local
+from xoutil.decorator.compat import metaclass
+from xoutil.collections import StackedDict
 
-from xoutil.collections import OrderedDict
-from xoutil.compat import iteritems_
-
-try:
-    from zope.interface import Interface
-except ImportError:
-    Interface = None
-
-
+from xoutil.names import strlist as strs
+__all__ = strs('Context', 'context', 'NulContext')
+del strs
 
 class LocalData(local):
     def __init__(self):
         super(LocalData, self).__init__()
-        self.contexts = OrderedDict()
+        self.contexts = {}
 
 _data = LocalData()
 
 
+class MetaContext(type(StackedDict)):
+    def __len__(self):
+        return len(_data.contexts)
 
-class MetaContext(type):
+    def __iter__(self):
+        return iter(_data.contexts)
+
     def __getitem__(self, name):
-        result = _data.contexts.get(name, None)
-        if result:
-            return result
-        elif Interface and not result and type(name) is type(Interface):
-            candidates = list((len(type(which).mro()), context)
-                               for which, context in iteritems_(_data.contexts)
-                               if name.providedBy(which))
-            if candidates:
-                # Returns the most specific and last
-                candidates.sort(key=lambda (depth, cls): depth, reverse=True)
-                return candidates[0][-1]
-            else:
-                return _null_context
-        else:
-            return _null_context
-
+        return _data.contexts.get(name, _null_context)
 
     def __contains__(self, name):
-        '''
-        Basic cupport for the 'A in context' idiom::
-
-            >>> from xoutil.context import context
-            >>> with context('A'):
-            ...    if 'A' in context:
-            ...        print('A')
-            A
-        '''
+        '''Basic support for the 'A in context' idiom.'''
         return bool(self[name])
 
 
-
-class Context(object):
-    '''
-    A context manager for execution context flags.
+@metaclass(MetaContext)
+class Context(StackedDict):
+    '''A context manager for execution context flags.
 
     Use as::
 
@@ -135,28 +76,69 @@ class Context(object):
     context you should use `context(name)` for testing whether some piece of
     code is being executed inside a context you should use `context[name]`;
     you may also use the syntax `name in context`.
+
+    When an existing context is entering, the former one is reused.
+    Nevertheless, the data stored in each context is local to each level.
+
+    For example::
+
+        >>> with context('A', b=1) as a1:
+        ...   with context('A', b=2) as a2:
+        ...       print(a2['b'])
+        ...   print(a1['b'])
+        2
+        1
+
+    For data access, a mapping interface is provided for all contexts. If a
+    data slot is deleted at some level, upper level is used to read
+    values. Each new written value is stored in current level without affecting
+    upper levels.
+
+    For example::
+
+        >>> with context('A', b=1) as a1:
+        ...   with context('A', b=2) as a2:
+        ...       del a2['b']
+        ...       print(a2['b'])
+        1
+
+    It is an error to *reuse* a context directly like in::
+
+        >>> with context('A', b=1) as a1:   # doctest: +ELLIPSIS
+        ...   with a1:
+        ...       pass
+        Traceback (most recent call last):
+        ...
+        RuntimeError: Entering the same context level twice! ...
+
     '''
-    __metaclass__ = MetaContext
+    __slots__ = ('name', 'count', '_events')
 
     def __new__(cls, name, **data):
         res = cls[name]
-        if res is _null_context:
+        if not res:     # if res is _null_context:
             res = super(Context, cls).__new__(cls)
             res.name = name
-            res.data = data
             res.count = 0
+            # TODO: Redefine all event management
             res._events = []
-        elif data:
-            res.data.update(data)
+            super(Context, res).__init__()
+        res.push(**data)
         return res
 
+    def __init__(self, name, **data):
+        pass
+
     def __nonzero__(self):
-        return self.count
+        return bool(self.count)
+    __bool__ = __nonzero__
 
     def __enter__(self):
         if self.count == 0:
             _data.contexts[self.name] = self
         self.count += 1
+        if self.count != self.level:
+            raise RuntimeError('Entering the same context level twice! -- c(%s, %d, %d)' % (self.name, self.count, self.level))
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -165,8 +147,8 @@ class Context(object):
             for event in self.events:
                 event(self)
             del _data.contexts[self.name]
+        super(Context, self).pop()
         return False
-
 
     @property
     def events(self):
@@ -174,16 +156,18 @@ class Context(object):
 
     @events.setter
     def events(self, value):
-        self._events = list(set(value))
+        self._events = list(value)
 
 
 # A simple alias for Context
 context = Context
+__all__.append('context')
 
 
 class NullContext(object):
-    '''
-    Singleton context to be used (returned) as default when no one is defined.
+    '''Singleton context to be used (returned) as default when no one is
+    defined.
+
     '''
 
     instance = None
@@ -193,34 +177,36 @@ class NullContext(object):
             cls.instance = super(NullContext, cls).__new__(cls)
         return cls.instance
 
+    def __len__(self):
+        return 0
+
+    def __iter__(self):
+        return ()
+
+    def __getitem__(self, key):
+        raise KeyError(key)
+
     def __nonzero__(self):
         return False
+    __bool__ = __nonzero__
 
     def __enter__(self):
-        from xoutil.types import Unset
-        return Unset
+        return _null_context
 
     def __exit__(self, exc_type, exc_value, traceback):
         return False
 
+    def get(self, name, default=None):
+        return default
 
 
 _null_context = NullContext()
 
 
-class SimpleClose(object):
-    '''
-    A very simple close manager that just call the argument function exiting
-    the manager.
-    '''
-    def __init__(self, close_funct, *args, **kwargs):
-        self.close_funct = close_funct
-        self.args = args
-        self.kwargs = kwargs
+from collections import Mapping, MutableMapping
 
-    def __enter__(self):
-        return self
+Mapping.register(MetaContext)
+Mapping.register(NullContext)
+MutableMapping.register(Context)
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close_funct(*self.args, **self.kwargs)
-        return False
+del Mapping, MutableMapping

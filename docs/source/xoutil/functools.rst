@@ -2,4 +2,10 @@
 ===================================================================================
 
 .. automodule:: xoutil.functools
-   :members:
+   :members: lru_cache
+
+.. autofunction:: compose(*funcs, math=True)
+
+.. autofunction:: power(*funcs, times)
+
+.. autoclass:: ctuple

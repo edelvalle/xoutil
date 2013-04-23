@@ -1,14 +1,12 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-#----------------
-# util/compat.py
-#----------------
+# -*- coding: utf-8 -*-
+#----------------------------------------------------------------------
+# xoutil.compat
+#----------------------------------------------------------------------
 #
-# ============================ Original copyright notice ====================
-# Copyright (C) 2005-2011 the SQLAlchemy authors and contributors <see AUTHORS
-# file>
+# ============================ Original copyright notice ===================
+# Copyright (C) 2005-2011 the SQLAlchemy authors and contributors
 #
-# This module is part of SQLAlchemy and is released under
+# This module is based on part of SQLAlchemy and is released under
 # the MIT License: http://www.opensource.org/licenses/mit-license.php
 # ============================ Original copyright notice ===================
 
@@ -20,10 +18,6 @@ from __future__ import (division as _py3_division,
                         absolute_import as _py3_abs_imports)
 
 import sys
-
-# Py2K
-import __builtin__
-# end Py2K
 
 # TODO: Changes in Python 3
 #    * remove "iteritems", "itervalues", "iterkeys" for dict
@@ -45,6 +39,8 @@ import __builtin__
 #    * except type, var is not longer supported
 #    * "__nonzero__" -> "__bool__"
 
+# TODO: Make compatible all libraries and applications with Python 2.7
+
 try:
     import threading
 except ImportError:
@@ -55,6 +51,28 @@ py3k = getattr(sys, 'py3kwarning', False) or sys.version_info >= (3, 0)
 jython = sys.platform.startswith('java')
 pypy = hasattr(sys, 'pypy_version_info')
 win32 = sys.platform.startswith('win')
+
+if py3k:
+    str_base = str
+    str_types = (str, )
+    u = _unicode = str
+    ext_str_types = (bytes, str)
+    class_types = (type, )
+    integer = long = int
+    from builtins import range as xrange
+    xrange_ = xrange
+    range_ = range = lambda *args: list(xrange(*args))
+else:
+    str_base = basestring
+    str_types = (str, unicode)
+    _unicode = unicode
+    ext_str_types = (str, unicode)
+    from types import TypeType
+    class_types = (type, TypeType)
+    integer = long
+    from __builtin__ import xrange, range
+    xrange_ = xrange
+    range_ = range
 
 if py3k:
     set_types = set
@@ -73,7 +91,6 @@ else:
     else:
         import sets
         warnings.filters.remove(ignore)
-
     set_types = set, sets.Set
 
 if py3k:
@@ -84,25 +101,46 @@ else:
     except ImportError:
         import pickle
 
+
+if py3k:
+    import configparser
+else:
+    import ConfigParser as configparser
+    ConfigParser = configparser
+
+
 if py3k:
     from inspect import getfullargspec as inspect_getfullargspec
 else:
     from inspect import getargspec as inspect_getfullargspec
 
-if py3k:
-    # they're bringing it back in 3.2.  brilliant !
-    def callable(fn):
-        return hasattr(fn, '__call__')
 
+if py3k and not py32:
+    def callable(obj):
+        '''callable(object) -> bool
+
+        Return whether the object is callable (i.e., some kind of function).
+        Note that classes are callable, as are instances of classes with a
+        __call__() method.
+
+        '''
+        return hasattr(obj, '__call__')
+else:
+    # Removed in Python 3 and brought back in 3.2.  brilliant!
+    try:
+        from builtins import callable
+    except ImportError:
+        from __builtin__ import callable
+
+
+if py3k:
     def cmp(a, b):
         return (a > b) - (a < b)
 
     # Remove this import, always use it directly
     from functools import reduce
 else:
-    callable = __builtin__.callable
-    cmp = __builtin__.cmp
-    reduce = __builtin__.reduce
+    from __builtin__ import cmp, reduce
 
 try:
     from collections import defaultdict
@@ -149,21 +187,20 @@ class _probe(dict):
         return 1
 
 try:
-    try:
-        _probe()['missing']
-        py25_dict = dict
-    except KeyError:
-        class py25_dict(dict):
-            def __getitem__(self, key):
+    _probe()['missing']
+    py25_dict = dict
+except KeyError:
+    class py25_dict(dict):
+        def __getitem__(self, key):
+            try:
+                return dict.__getitem__(self, key)
+            except KeyError:
                 try:
-                    return dict.__getitem__(self, key)
-                except KeyError:
-                    try:
-                        missing = self.__missing__
-                    except AttributeError:
-                        raise KeyError(key)
-                    else:
-                        return missing(key)
+                    missing = self.__missing__
+                except AttributeError:
+                    raise KeyError(key)
+                else:
+                    return missing(key)
 finally:
     del _probe
 
@@ -174,6 +211,7 @@ try:
 except ImportError:
     import md5
     _md5 = md5.new
+
 
 def md5_hex(x):
     # Py3K
@@ -215,10 +253,10 @@ else:
             return obj
         return g
 
-import decimal
+import decimal  # TODO: Why 'decimal' is here?
 
 
-if py3k: # pragma: no cover
+if py3k:    # pragma: no cover
     def iteritems_(d):
         return d.items()
     def itervalues_(d):
@@ -233,3 +271,31 @@ else:
     def iterkeys_(d):
         return d.iterkeys()
 
+try:
+    import ConfigParser as configparser
+except:
+    import configparser     # Name changed in Python3
+
+try:
+    from future_builtins import zip
+except ImportError:
+    from builtins import zip
+izip = zip
+
+try:
+    from future_builtins import map
+except ImportError:
+    from builtins import map
+imap = map
+
+try:
+    from itertools import izip_longest as zip_longest
+except ImportError:
+    from itertools import zip_longest
+izip_longest = zip_longest
+
+
+if py3k:
+    from builtins import chr
+else:
+    from __builtin__ import unichr as chr

@@ -3,7 +3,8 @@
 #----------------------------------------------------------------------
 # xoutil.formatter
 #----------------------------------------------------------------------
-# Copyright (c) 2009-2011 Medardo Rodríguez
+# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2009-2012 Medardo Rodríguez
 # All rights reserved.
 #
 # Author: Medardo Rodriguez
@@ -22,12 +23,13 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _py3_abs_imports)
 
+from .compat import str_base
+from .decorator.compat import metaclass
 
 
 class DelimiterFactory(object):
     def __new__(cls, owner, key, start, end):
         return key
-
 
 
 class BaseFactory(object):
@@ -39,23 +41,20 @@ class BaseFactory(object):
         self.start = start
 
 
-
 class MapFactory(BaseFactory):
     def __call__(self, mapping):
-        return unicode(mapping[self.key])
-
+        from xoutil.compat import _unicode
+        return _unicode(mapping[self.key])
 
 
 class PyFactory(BaseFactory):
     def __init__(self, owner, key, start, end):
-        super(PyFactory, self).__init__(owner,
-                                        compile(key, '', 'eval'),
+        super(PyFactory, self).__init__(owner, compile(key, '', 'eval'),
                                         start, end)
 
-
     def __call__(self, mapping):
-        return unicode(eval(self.key, mapping))
-
+        from xoutil.compat import _unicode
+        return _unicode(eval(self.key, mapping))
 
 
 class InvalidFactory(object):
@@ -74,7 +73,9 @@ class InvalidFactory(object):
             line = len(lines)
         else:
             col = line = 1
-        raise ValueError('Invalid place-holder in string: line "%d", col "%d"' % (line, col))
+        msg = ('Invalid place-holder in string: '
+               'line "%d", col "%d"') % (line, col)
+        raise ValueError(msg)
 
 
 
@@ -89,7 +90,6 @@ class _TemplateClass(type):
                ('python', r'[^{}]+', '{\?%s}', PyFactory),
                ('invalid', r'.', '%s', InvalidFactory))
 
-
     def __init__(cls, name, bases, attrs):
         import re
         super(_TemplateClass, cls).__init__(name, bases, attrs)
@@ -97,12 +97,13 @@ class _TemplateClass(type):
         for kind, pattern, wrapper, factory in cls._alters:
             factories[kind] = factory
             alters.append(wrapper % ('(?P<%s>%s)' % (kind, pattern)))
-        rexp = r'(?P<delimiter>%s)(?:%s)' % (re.escape(cls.delimiter), b'|'.join(alters))
+        rexp = r'(?P<delimiter>%s)(?:%s)' % (re.escape(cls.delimiter),
+                                             '|'.join(alters))
         cls.pattern = re.compile(rexp, re.IGNORECASE | re.VERBOSE)
         cls.factories = factories
 
 
-
+@metaclass(_TemplateClass)
 class Template(object):
     '''
     A string class for supporting $-substitutions.
@@ -121,19 +122,19 @@ class Template(object):
     python expression. Simple variables are allowed just with ``$var`` or
     ``${var}``::
 
-        >>> tpl = Template(u'${?1 + 1} is 2, and ${?x + x} is $x + ${x}')
-        >>> tpl % dict(x=4)
-        u'2 is 2, and 8 is 4 + 4'
+        >>> tpl = Template(str('${?1 + 1} is 2, and ${?x + x} is $x + ${x}'))
+        >>> (tpl % dict(x=4)) == '2 is 2, and 8 is 4 + 4'
+        True
 
     The mapping may be given by calling the template::
 
-        >>> tpl(x=5)
-        u'2 is 2, and 10 is 5 + 5'
+        >>> tpl(x=5) == '2 is 2, and 10 is 5 + 5'
+        True
     '''
 
     __metaclass__ = _TemplateClass
 
-    delimiter = '$'
+    delimiter = str('$')
 
     def __init__(self, template):
         self.template = template
@@ -154,38 +155,33 @@ class Template(object):
                     self._append(aux)
                 valid = False
 
-
     def __str__(self):
-        return '%s(%s)' % (self.__class__.__name__, self.template)
-
+        return str('%s(%s)') % (self.__class__.__name__, self.template)
 
     def __call__(self, mapping={}, **kwargs):
         # TODO: Don't update if object
         kwargs.update(mapping)    # Don't modify mapping if given
         res = self.template.__class__()
         for item in self.items:
-            if isinstance(item, basestring):
+            if isinstance(item, str_base):
                 res += item
             else:
                 res += item(kwargs)
         return res
 
-
     def __mod__(self, mapping):
         '''template % {'x':1}'''
         return self(mapping)
 
-
     def substitute(self, mapping={}, **kwargs):
         return self(mapping, **kwargs)
-
 
     def safe_substitute(self, mapping={}, **kwargs):
         # TODO: Don't update if object
         kwargs.update(mapping)    # Don't modify mapping if given
         res = self.template.__class__()
         for item in self.items:
-            if isinstance(item, basestring):
+            if isinstance(item, str_base):
                 res += item
             else:
                 if item._unsafe:
@@ -194,19 +190,18 @@ class Template(object):
                     try:
                         res += item(kwargs)
                     except:
-                        res += ''    # item.match
+                        res += str('')    # item.match
         return res
 
-
     def _append(self, item):
-        if isinstance(item, basestring) and self.items and isinstance(self.items[-1], basestring):
+        if (isinstance(item, str_base) and
+                self.items and isinstance(self.items[-1], str_base)):
             self.items[-1] += item
         else:
             self.items.append(item)
 
-
     def _GetFactory(self, token):
-        keys = self.factories.keys()
+        keys = list(self.factories)     # Get keys
         i, count = 0, len(keys)
         res = None
         while not res and (i < count):
@@ -217,7 +212,6 @@ class Template(object):
             else:
                 i += 1
         return res, aux
-
 
 
 def count(source, chars):

@@ -13,13 +13,12 @@ from __future__ import (division as _py3_division,
 from xoutil.compat import py32
 
 
-__all__ = ["Repr", "repr", "recursive_repr"]
-
-
-
 if py32:
-    from reprlib import Repr, repr, recursive_repr
+    from reprlib import Repr, repr, recursive_repr, __all__
 else:
+    # Don't use name list here to avoid module recursive use
+    __all__ = (str("Repr"), str("repr"), str("recursive_repr"))
+
     import __builtin__ as builtins
     from itertools import islice
     try:
@@ -28,7 +27,8 @@ else:
         from dummy_thread import get_ident
 
     def recursive_repr(fillvalue='...'):
-        'Decorator to make a repr function return fillvalue for a recursive call'
+        '''Decorator to make a repr function return ``fillvalue`` for a recursive
+        call'''
 
         def decorating_function(user_function):
             repr_running = set()
@@ -48,12 +48,13 @@ else:
             wrapper.__module__ = getattr(user_function, '__module__')
             wrapper.__doc__ = getattr(user_function, '__doc__')
             wrapper.__name__ = getattr(user_function, '__name__')
-            wrapper.__annotations__ = getattr(user_function, '__annotations__', {})
+            wrapper.__annotations__ = getattr(user_function,
+                                              '__annotations__', {})
             return wrapper
 
         return decorating_function
 
-    class Repr:
+    class Repr(object):
 
         def __init__(self):
             self.maxlevel = 6
@@ -89,9 +90,11 @@ else:
                 newlevel = level - 1
                 repr1 = self.repr1
                 pieces = [repr1(elem, newlevel) for elem in islice(x, maxiter)]
-                if n > maxiter:  pieces.append('...')
+                if n > maxiter:
+                    pieces.append('...')
                 s = ', '.join(pieces)
-                if n == 1 and trail:  right = trail + right
+                if n == 1 and trail:
+                    right = trail + right
             return '%s%s%s' % (left, s, right)
 
         def repr_tuple(self, x, level):
@@ -114,12 +117,15 @@ else:
                                        self.maxfrozenset)
 
         def repr_deque(self, x, level):
-            return self._repr_iterable(x, level, 'deque([', '])', self.maxdeque)
+            return self._repr_iterable(x, level, 'deque([', '])',
+                                       self.maxdeque)
 
         def repr_dict(self, x, level):
             n = len(x)
-            if n == 0: return '{}'
-            if level <= 0: return '{...}'
+            if n == 0:
+                return '{}'
+            if level <= 0:
+                return '{...}'
             newlevel = level - 1
             repr1 = self.repr1
             pieces = []
@@ -127,7 +133,8 @@ else:
                 keyrepr = repr1(key, newlevel)
                 valrepr = repr1(x[key], newlevel)
                 pieces.append('%s: %s' % (keyrepr, valrepr))
-            if n > self.maxdict: pieces.append('...')
+            if n > self.maxdict:
+                pieces.append('...')
             s = ', '.join(pieces)
             return '{%s}' % (s,)
 
@@ -141,7 +148,7 @@ else:
             return s
 
         def repr_int(self, x, level):
-            s = builtins.repr(x) # XXX Hope this isn't too slow...
+            s = builtins.repr(x)  # XXX Hope this isn't too slow...
             if len(s) > self.maxlong:
                 i = max(0, (self.maxlong-3)//2)
                 j = max(0, self.maxlong-3-i)
@@ -161,7 +168,6 @@ else:
                 s = s[:i] + '...' + s[len(s)-j:]
             return s
 
-
     def _possibly_sorted(x):
         # Since not all sequences of items can be sorted and comparison
         # functions may raise arbitrary exceptions, return an unsorted
@@ -173,4 +179,3 @@ else:
 
     aRepr = Repr()
     repr = aRepr.repr
-

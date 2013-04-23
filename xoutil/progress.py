@@ -2,7 +2,8 @@
 #----------------------------------------------------------------------
 # xoutil.progress
 #----------------------------------------------------------------------
-# Copyright (c) 2011 Medardo Rodríguez
+# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2011, 2012 Medardo Rodríguez
 # All rights reserved.
 #
 # Author: Medardo Rodriguez
@@ -12,8 +13,6 @@
 # terms of the LICENCE attached (see LICENCE file) in the distribution
 # package.
 
-
-
 '''Tool to show a progress percent in the terminal.'''
 
 
@@ -21,11 +20,12 @@ from __future__ import (division as _py3_division,
                         print_function as _py3_print,
                         unicode_literals as _py3_unicode)
 
+from xoutil.names import strlist as strs
+__all__ = strs('Progress')
+del strs
 
-from xoutil.functools import lru_cache
 
 _HELIX = '|/-\\'
-
 
 
 class Progress(object):
@@ -75,7 +75,5 @@ class Progress(object):
             print(progress_line, end=('' if percent != 100 else '\n\r'))
             sys.stdout.flush()
 
-
-    @lru_cache()
     def _get_terminal_width(self, default=120):
         return default
