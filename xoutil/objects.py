@@ -23,6 +23,7 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import)
 
+from xoutil.compat import py3k as _py3k
 from xoutil.deprecation import deprecated
 
 from xoutil.names import strlist as strs
@@ -431,6 +432,33 @@ class lazy(object):
             return res
 
 
+class classproperty(object):
+    '''A descriptor that behaves like property for instances but for classes.
+
+    Example of its use::
+
+        class Foobar(object):
+            @classproperty
+            def getx(cls):
+                return cls._x
+
+    Class properties are always read-only, if attribute values must be setted
+    or deleted, a metaclass must be defined.
+
+    '''
+    def __init__(self, fget):
+        '''Create the class property descriptor.
+
+          :param:`fget` is a function for getting the class attribute value
+
+        '''
+        self.__get = fget
+
+    def __get__(self, instance, owner):
+        cls = type(instance) if instance is not None else owner
+        return self.__get(cls)
+
+
 def setdefaultattr(obj, name, value):
     '''Sets the attribute name to value if it is not set::
 
@@ -497,8 +525,10 @@ def full_nameof(target):
         return res
 
 
-def copy_class(cls, meta=None, ignores=None, **new_attrs):
+def copy_class(cls, meta=None, ignores=None, new_attrs=None):
     '''Copies a class definition to a new class.
+
+    The returned class will have the same name, bases and module of `cls`.
 
     :param meta: If None, the `type(cls)` of the class is used to build the new
                  class, otherwise this must be a *proper* metaclass.
@@ -521,6 +551,8 @@ def copy_class(cls, meta=None, ignores=None, **new_attrs):
     :param new_attrs: New attributes the class must have. These will take
                       precedence over the attributes in the original class.
 
+    :type new_attrs: dict
+
     .. versionadded:: 1.4.0
 
     '''
@@ -541,12 +573,13 @@ def copy_class(cls, meta=None, ignores=None, **new_attrs):
         ignored = None
     attrs = {name: value
              for name, value in iteritems_(cls.__dict__)
-             if name not in ('__class__', '__mro__', '__name__', '__weakref__')
+             if name not in ('__class__', '__mro__', '__name__', '__weakref__', '__dict__')
              # Must remove member descriptors, otherwise the old's class
              # descriptor will override those that must be created here.
              if not isinstance(value, MemberDescriptorType)
              if ignored is None or not ignored(name)}
-    attrs.update(new_attrs)
+    if new_attrs:
+        attrs.update(new_attrs)
     result = meta(cls.__name__, cls.__bases__, attrs)
     return result
 
@@ -677,7 +710,7 @@ def smart_copy(*args, **kwargs):
             for key in items:
                 if defaults is False and key.startswith('_'):
                     copy = False
-                elif isinstance(defaults, function):
+                elif callable(defaults):
                     copy = defaults(key, source=source)
                 else:
                     copy = True
@@ -703,3 +736,53 @@ def extract_attrs(obj, *names, **kwargs):
     from xoutil.objects import smart_getter
     get = smart_getter(obj)
     return tuple(get(attr, **kwargs) for attr in names)
+
+
+import importlib
+if _py3k:
+    from xoutil._meta3 import metaclass
+    # metaclass = importlib.import_module('xoutil._meta3').metaclass
+else:
+    from xoutil._meta2 import metaclass
+    # metaclass = importlib.import_module('xoutil._meta2').metaclass
+
+
+metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking style.
+
+Usage::
+
+   >>> class Meta(type):
+   ...   pass
+
+   # This is the same as the Py3k syntax: class Foobar(metaclass=Meta)
+   >>> class Foobar(metaclass(Meta)):
+   ...   pass
+
+   >>> class Spam(dict, metaclass(Meta)):
+   ...   pass
+
+   >>> type(Spam) is Meta
+   True
+
+   >>> Spam.__bases__ == (dict, )
+   True
+'''
+
+
+def register_with(abc):
+    '''Register a virtual `subclass` of an ABC.
+
+    For example::
+
+        >>> from collections import Mapping
+        >>> @register_with(Mapping)
+        ... class Foobar(object):
+        ...     pass
+        >>> issubclass(Foobar, Mapping)
+            True
+
+    '''
+    def inner(subclass):
+        abc.register(subclass)
+        return subclass
+    return inner

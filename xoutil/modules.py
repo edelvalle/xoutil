@@ -127,19 +127,23 @@ def customize(module, **kwargs):
     '''
     if not isinstance(module, _CustomModuleBase):
         import sys
-        from xoutil.decorator.compat import metaclass
+        from xoutil.objects import metaclass
 
         class CustomModuleType(type):
             def __new__(cls, name, bases, attrs):
                 # TODO: Take all attrs from `module` to avoid the double call
                 # in __getattr__.
                 attrs.update(kwargs)
-                return super(CustomModuleType, cls).__new__(cls, name, bases, attrs)
+                return super(CustomModuleType, cls).__new__(cls, name, bases,
+                                                            attrs)
 
-        @metaclass(CustomModuleType)
-        class CustomModule(_CustomModuleBase):
+        class CustomModule(_CustomModuleBase, metaclass(CustomModuleType)):
             def __getattr__(self, attr):
-                return getattr(module, attr)
+                self.__dict__[attr] = result = getattr(module, attr)
+                return result
+
+            def __dir__(self):
+                return dir(module)
 
         sys.modules[module.__name__] = result = CustomModule(module.__name__)
         return result, True, CustomModule
@@ -148,7 +152,7 @@ def customize(module, **kwargs):
 
 
 def modulemethod(func):
-    '''Defines a module-level method.
+    '''Decorator that defines a module-level method.
 
     Simply a module-level method, will always receive a first argument `self`
     with the module object.
@@ -156,23 +160,24 @@ def modulemethod(func):
     '''
     import sys
     from functools import wraps
-    self = sys.modules[func.__module__]
+    self, _created, cls = customize(sys.modules[func.__module__])
     @wraps(func)
     def inner(*args, **kwargs):
         return func(self, *args, **kwargs)
+    setattr(cls, func.__name__, func)
     return inner
 
 
 def moduleproperty(getter, setter=None, deleter=None, doc=None):
-    '''Creates a module-level property.
+    '''Decorator that creates a module-level property.
 
     The module of the `getter` is replaced by a custom implementation of the
-    module, and the property is injected to the class.
+    module, and the property is injected to the custom module's class.
 
     '''
     import sys
     module = sys.modules[getter.__module__]
-    module, created, cls = customize(module)
+    module, _created, cls = customize(module)
     class prop(property):
         def setter(self, func):
             result = super(prop, self).setter(func)

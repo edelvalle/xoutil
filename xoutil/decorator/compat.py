@@ -20,14 +20,18 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _py3_abs_imports)
 
+from xoutil.deprecation import deprecated
+
 from xoutil.names import strlist as strs
 __all__ = strs('metaclass')
 del strs
 
 __author__ = "Manuel Vázquez Acosta <mva.led@gmail.com>"
-__date__   = "Tue Jan 15 11:38:55 2013"
+__date__ = "Tue Jan 15 11:38:55 2013"
 
 
+@deprecated('xoutil.objects.metaclass', removed_in_version='1.4.2',
+            check_version=True)
 def metaclass(meta):
     '''Declares a meta class transparently in Python 2 and Python 3.
 
@@ -60,6 +64,10 @@ def test_metaclass_decorator_with_slots():
 
     @metaclass(Meta)
     class Ok(object):
+        def __init__(self, **kwargs):
+            self.__dict__ = kwargs
+
+
         @classmethod
         def clmethod(cls):
             return cls
@@ -85,7 +93,8 @@ def test_metaclass_decorator_with_slots():
     except:
         assert False, 'Should have raised AttributeError'
 
-    ok = Ok()
+    ok = Ok(name='ok')
     assert ok.stmethod(ok) == ok
     assert ok.clmethod() == Ok
     assert ok.echo(1) == (ok, 1)
+    assert ok.name == 'ok'
