@@ -3,23 +3,11 @@
 #----------------------------------------------------------------------
 # xoutil.cli
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement
+# Copyright (c) 2013 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License (GPL) as published by the
-# Free Software Foundation;  either version 2  of  the  License, or (at
-# your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-# MA 02110-1301, USA.
+# the terms of the LICENCE attached in the distribution package.
 #
 # Created on 3 mai 2013
 
@@ -105,10 +93,7 @@ class Command(metaclass(ABCMeta)):
 
     Each command could include its own argument parser, but it isn't used
     automatically, all arguments will be passed as a single parameter to
-    :method:`run` removing the command when obtained from "sys.argv".
-    Nevertheless, if the command define one class method named
-    "get_arg_parser", then it will be used to complement the help of this
-    command. See :method:`get_help` for more info.
+    :meth:`run` removing the command when obtained from "sys.argv".
 
     '''
     __default_command__ = None
