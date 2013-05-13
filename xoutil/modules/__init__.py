@@ -21,7 +21,9 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _py3_abs_import)
 
+import sys
 from types import ModuleType
+from xoutil.objects import metaclass
 
 __docstring_format__ = 'rst'
 __author__ = 'med'
@@ -45,7 +47,6 @@ def force_module(ref=None):
         if ref is None:
             ref = 1
         if isinstance(ref, int):
-            import sys
             ref = sys._getframe(ref).f_globals['__name__']
         if not isinstance(ref, str):
             if isinstance(ref, bytes):
@@ -98,8 +99,7 @@ def copy_members(source=None, target=None):
     return source
 
 
-class _CustomModuleBase(ModuleType):
-    pass
+_CUSTOM_MODULE_TYPE_NAME = str('CustomModule')
 
 
 def customize(module, **kwargs):
@@ -114,9 +114,7 @@ def customize(module, **kwargs):
               will be the class of the module (the first item).
 
     '''
-    if not isinstance(module, _CustomModuleBase):
-        import sys
-        from xoutil.objects import metaclass
+    if type(module).__name__ != _CUSTOM_MODULE_TYPE_NAME:
 
         class CustomModuleType(type):
             def __new__(cls, name, bases, attrs):
@@ -126,13 +124,15 @@ def customize(module, **kwargs):
                 return super(CustomModuleType, cls).__new__(cls, name, bases,
                                                             attrs)
 
-        class CustomModule(metaclass(CustomModuleType), _CustomModuleBase):
+        class CustomModule(metaclass(CustomModuleType), ModuleType):
             def __getattr__(self, attr):
                 self.__dict__[attr] = result = getattr(module, attr)
                 return result
 
             def __dir__(self):
                 return dir(module)
+
+        assert CustomModule.__name__ == _CUSTOM_MODULE_TYPE_NAME
 
         sys.modules[module.__name__] = result = CustomModule(module.__name__)
         return result, True, CustomModule
@@ -147,7 +147,6 @@ def modulemethod(func):
     with the module object.
 
     '''
-    import sys
     from functools import wraps
     self, _created, cls = customize(sys.modules[func.__module__])
     @wraps(func)
@@ -164,7 +163,6 @@ def moduleproperty(getter, setter=None, deleter=None, doc=None):
     module, and the property is injected to the custom module's class.
 
     '''
-    import sys
     module = sys.modules[getter.__module__]
     module, _created, cls = customize(module)
     class prop(property):
