@@ -126,7 +126,7 @@ def customize(module, **kwargs):
                 return super(CustomModuleType, cls).__new__(cls, name, bases,
                                                             attrs)
 
-        class CustomModule(_CustomModuleBase, metaclass(CustomModuleType)):
+        class CustomModule(metaclass(CustomModuleType), _CustomModuleBase):
             def __getattr__(self, attr):
                 self.__dict__[attr] = result = getattr(module, attr)
                 return result
