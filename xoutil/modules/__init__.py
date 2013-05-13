@@ -102,6 +102,10 @@ def copy_members(source=None, target=None):
 _CUSTOM_MODULE_TYPE_NAME = str('CustomModule')
 
 
+# TODO: [manu] "kwargs" never is used, so maybe the metaclass is not needed
+#       Also, if this parameter will be used, then you need to update
+#       CustomModule even after created the first time.
+#       Also, returning if created or not, looks as unnecessary too.
 def customize(module, **kwargs):
     '''Replaces a `module` by a custom one.
 
@@ -116,15 +120,7 @@ def customize(module, **kwargs):
     '''
     if type(module).__name__ != _CUSTOM_MODULE_TYPE_NAME:
 
-        class CustomModuleType(type):
-            def __new__(cls, name, bases, attrs):
-                # TODO: Take all attrs from `module` to avoid the double call
-                # in __getattr__.
-                attrs.update(kwargs)
-                return super(CustomModuleType, cls).__new__(cls, name, bases,
-                                                            attrs)
-
-        class CustomModule(metaclass(CustomModuleType), ModuleType):
+        class CustomModule(ModuleType):
             def __getattr__(self, attr):
                 self.__dict__[attr] = result = getattr(module, attr)
                 return result
@@ -135,9 +131,12 @@ def customize(module, **kwargs):
         assert CustomModule.__name__ == _CUSTOM_MODULE_TYPE_NAME
 
         sys.modules[module.__name__] = result = CustomModule(module.__name__)
-        return result, True, CustomModule
+        result = (result, True, CustomModule)
     else:
-        return module, False, type(module)
+        result = (module, False, type(module))
+    for attr in kwargs:
+        setattr(result[2], attr, kwargs[attr])
+    return result
 
 
 def modulemethod(func):
