@@ -23,7 +23,6 @@ from __future__ import (division as _py3_division,
 
 import sys
 from types import ModuleType
-from xoutil.objects import metaclass
 
 __docstring_format__ = 'rst'
 __author__ = 'med'
