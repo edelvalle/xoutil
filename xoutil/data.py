@@ -89,3 +89,107 @@ class SortedSmartDict(xoutil.collections.OrderedSmartDict):
        :class:`xoutil.collections.OrderedSmartDict`.
 
     '''
+
+class IntSet(object):
+    '''Compacted non-negative integer set with smart representation.
+    '''
+    def __init__(self, init=None):
+        # TODO: Create sparce mutable bytes slices
+        self._bucket_size = 4096
+        self._count = 0
+        self._content = []   # each byte represents 1024 members (ie. 512 bytes)
+        if init:
+            self._extend(init)
+
+    def __contains__(self, item):
+        from xoutil.compat import integers
+        assert isinstance(item, integers) and item >= 0
+        b = self._content
+        if not b:
+            return False
+        index, bit = divmod(item, self._bucket_size)
+        size = len(b)
+        if size > index:
+            bucket = b[index]
+            return (2**bit) & bucket == 2**bit
+        else:
+            return False
+
+    def add(self, item):
+        '''Adds an item to the set.
+        '''
+        b = self._content
+        index, bit = divmod(item, self._bucket_size)
+        size = len(b)
+        if size <= index:
+            from itertools import repeat
+            pad = index - size + 1
+            b.extend(repeat(0, pad))
+        bucket = b[index]
+        bucket = bucket | 2**bit
+        b[index] = bucket
+        self._count += 1
+
+    def remove(self, item):
+        '''Removes an item to the set.
+        '''
+        b = self._content
+        index, bit = divmod(item, self._bucket_size)
+        size = len(b)
+        if size <= index:
+            return
+        bucket = b[index]
+        bucket = bucket & ~2**bit
+        b[index] = bucket
+        self._count -= 1
+        if index == size - 1:
+            # compact
+            while b and b[-1] == 0:
+                b.pop(-1)
+
+    def __repr__(self):
+        b = self._content
+        if not b:
+            return b'<empty intset>'
+        subsets = []
+        index = 0
+        size = len(b)
+        while index < size:
+            while index < size and b[index] == 0:
+                index += 1
+            if index < size:
+                bucket, bit = b[index], 0
+                while bucket & (2**bit) == 0:
+                    bit += 1
+                first = index * self._bucket_size + bit
+                sset = (first, first)
+                while bit < self._bucket_size:
+                    bit += 1
+                    while bit < self._bucket_size and bucket & (2**bit) == 0:
+                        bit += 1
+                    if bit < self._bucket_size:
+                        current = index * self._bucket_size + bit
+                        if sset[-1] + 1 == current:
+                            sset = (sset[0], current)
+                        else:
+                            subsets.append(sset)
+                            sset = (current, current)
+                subsets.append(sset)
+                index += 1
+        results = []
+        for first, last in subsets:
+            if first == last:
+                results.append(b'%d' % first)
+            else:
+                results.append(b'%d-%d' % (first, last))
+        return b'<%s>' % b', '.join(results)
+
+    def total_sizeof(self):
+        s = self.__sizeof__() + self._content.__sizeof__()
+        for bucket in self._content:
+            s += bucket.__sizeof__()
+        count = self._count
+        if count:
+            return (s, s/count)
+        else:
+            return (s, None)
