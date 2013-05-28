@@ -13,3 +13,10 @@
   :func:`xoutil.pprint.ppformat`.
 
 - Adds the package :mod:`xoutil.cli`.
+
+- Adds the `filter` parameter to functions :func:`xoutil.objects.xdir` and
+  :func:`xoutil.objects.fdir` and deprecates `attr_filter` and
+  `value_filter`.
+
+- Adds functions :func:`xoutil.objects.attrclass`,
+  :func:`xoutil.objects.fulldir`.

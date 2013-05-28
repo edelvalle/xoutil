@@ -116,11 +116,14 @@ def fix_private_name(cls, name):
 
 
 def attrclass(obj, name):
-    '''Find the definition class of an attribute specified by `name', return
-    None if not found.
+    '''Finds the class that has the definition of an attribute specified by
+    `name', return None if not found.
 
-    If `name` is private, classes are recursed in MRO until a definition or an
-    assign was made at that level.
+    Classes are recursed in MRO until a definition or an assign was made at
+    that level.
+
+    If `name` is private according to Python's conventions it is rewritted to
+    the "real" attribute name before searching.
 
     '''
     attrs = getattr(obj, '__dict__', {})
@@ -147,6 +150,7 @@ def attrclass(obj, name):
         return next((cls for cls in cls_chcks if cls is not None), None)
 
 
+# TODO: [med] Explain "valid" in documentation.
 def fulldir(obj):
     '''Return a set with all valid attribute names defined in `obj`'''
     res = set()
@@ -167,40 +171,62 @@ def fulldir(obj):
     return res
 
 
-# TODO: [manu] This is only a proposal, integrate in all these functions in ...
-#       order to use only one argument ``filter`` instead the use of
-#       ``attr_filter`` and ``value_filter``.
-#       So, ``def xdir(obj, filter=None, getter=None):``
-def xdir(obj, attr_filter=None, value_filter=None, getter=None):
+# TODO: Fix signature after removal of attr_filter and value_filter
+def xdir(obj, attr_filter=None, value_filter=None, getter=None, filter=None, _depth=0):
     '''Return all ``(attr, value)`` pairs from `obj` that ``attr_filter(attr)``
     and ``value_filter(value)`` are both True.
 
     :param obj: The object to be instrospected.
 
-    :param attr_filter: *optional* A filter for attribute names.
+    :param filter: *optional* A filter that will be passed both the attribute
+       name and it's value as two positional arguments. It should return True
+       for attrs that should be yielded.
 
-    :param value_filter: *optional* A filter for attribute values.
+       .. note::
+
+          If passed, both `attr_filter` and `value_filter` will be
+          ignored.
+
+    :param attr_filter: *optional* A filter for attribute names. *Deprecated
+         since 1.4.1*
+
+    :param value_filter: *optional* A filter for attribute values. *Deprecated
+         since 1.4.1*
 
     :param getter: *optional* A function with the same signature that
                    ``getattr`` to be used to get the values from `obj`.
 
-    If neither `attr_filter` nor `value_filter` are given, all `(attr, value)`
-    are generated.
-
     '''
     getter = getter or getattr
     attrs = dir(obj)
+    if attr_filter or value_filter:
+        import warnings
+        msg = ('Arguments of `attr_filter` and `value_filter` are deprecated. '
+               'Use argument `filter` instead.')
+        warnings.warn(msg, stacklevel=_depth + 1)
+    if filter:
+        attr_filter = None
+        value_filter = None
     if attr_filter:
         attrs = (attr for attr in attrs if attr_filter(attr))
     res = ((a, getter(obj, a)) for a in attrs)
     if value_filter:
         res = ((a, v) for a, v in res if value_filter(v))
+    if filter:
+        res = ((a, v) for a, v in res if filter(a, v))
     return res
 
 
-def fdir(obj, attr_filter=None, value_filter=None, getter=None):
+# TODO: Fix signature after removal of attr_filter and value_filter
+def fdir(obj, attr_filter=None, value_filter=None, getter=None, filter=None):
     '''Similar to :func:`xdir` but yields only the attributes names.'''
-    return (attr for attr, _v in xdir(obj, attr_filter, value_filter, getter))
+    full = xdir(obj,
+                filter=filter,
+                attr_filter=attr_filter,
+                value_filter=value_filter,
+                getter=getter,
+                _depth=1)
+    return (attr for attr, _v in full)
 
 
 def validate_attrs(source, target, force_equals=(), force_differents=()):
@@ -832,7 +858,7 @@ metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking
        >>> class Foobar(metaclass(Meta)):
        ...   pass
 
-       >>> class Spam(dict, metaclass(Meta)):
+       >>> class Spam(metaclass(Meta), dict):
        ...   pass
 
        >>> type(Spam) is Meta
@@ -841,36 +867,52 @@ metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking
        >>> Spam.__bases__ == (dict, )
        True
 
-    For metaclasses with colateral effects in constructors (combination of
-    "__new__" and "__init__" methods), use "metaclass" definition as first
-    argument::
+    .. note::
 
-        >>> class BaseMeta(type):
-        ...     classes = []
-        ...     def __new__(cls, name, bases, attrs):
-        ...         res = super(BaseMeta, cls).__new__(cls, name, bases, attrs)
-        ...         cls.classes.append(res)
-        ...         return res
+       You should always place your metaclass declaration *first* in the list
+       of bases. Doing otherwise triggers *twice* the metaclass' constructors
+       in Python 2.7.
 
-        >>> class Base(metaclass(BaseMeta)):
-        ...     pass
+       If your metaclass has some non-idempotent side-effect (such as
+       registration of classes), then this would lead to unwanted double
+       registration of the class.
 
-        >>> class SubType(BaseMeta):
-        ...     pass
+          >>> class BaseMeta(type):
+          ...     classes = []
+          ...     def __new__(cls, name, bases, attrs):
+          ...         res = super(BaseMeta, cls).__new__(cls, name, bases, attrs)
+          ...         cls.classes.append(res)   # <-- side effect
+          ...         return res
 
-        >>> class Egg(metaclass(SubType), Base):
-        ...     pass
+          >>> class Base(metaclass(BaseMeta)):
+          ...     pass
 
-        >>> len(BaseMeta.classes) == 2
-        True
+          >>> class SubType(BaseMeta):
+          ...     pass
 
-        >>> class Spam(Base, metaclass(SubType)):
-        ...     'Like "Egg" but registered twice in Python 2.x.'
+          >>> class Egg(metaclass(SubType), Base):   # <-- metaclass first
+          ...     pass
 
-        >>> len(BaseMeta.classes) == 3    # Fail in Python 2.x
-        True
+          >>> Egg.__base__ is Base   # <-- but the base is Base
+          True
 
-    '''
+          >>> len(BaseMeta.classes) == 2
+          True
+
+          >>> class Spam(Base, metaclass(SubType)):
+          ...     'Like "Egg" but it will be registered twice in Python 2.x.'
+
+       In this case the registration of Spam ocurred twice::
+
+          >>> BaseMeta.classes  # doctest: +SKIP
+          [<class Base>, <class Egg>, <class Spam>, <class Spam>]
+
+       Bases, however, are just fine::
+
+          >>> Spam.__bases__ == (Base, )
+          True
+
+'''
 
 
 def register_with(abc):
