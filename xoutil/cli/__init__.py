@@ -35,7 +35,6 @@ __docstring_format__ = 'rst'
 __author__ = 'med'
 
 
-
 class RegistryDescriptor(object):
     '''Define a mechanism to automatically obtain all registered commands.'''
 
