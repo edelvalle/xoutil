@@ -47,9 +47,7 @@ _false = lambda *args, **kwargs: False
 def nameof(target):
     '''Gets the name of an object.
 
-    .. warning::
-
-       *Deprecated since version 1.4.0.* Use :func:`xoutil.names.nameof`.
+    .. deprecated:: 1.4.0 Use :func:`xoutil.names.nameof`.
 
     '''
     from xoutil.names import nameof as wrapped
@@ -195,6 +193,8 @@ def xdir(obj, attr_filter=None, value_filter=None, getter=None, filter=None, _de
 
     :param getter: *optional* A function with the same signature that
                    ``getattr`` to be used to get the values from `obj`.
+
+    .. deprecated:: 1.4.1 The use of params `attr_filter` and `value_filter`.
 
     '''
     getter = getter or getattr
@@ -515,14 +515,16 @@ class lazy(object):
     :func:`setdefaultattr`.
 
     '''
-    def __init__(self, value):
+    def __init__(self, value, *args, **kwargs):
         self.value = value
+        self.args = args
+        self.kwargs = kwargs
 
     def __call__(self):
         from xoutil.compat import callable
         res = self.value
         if callable(res):
-            return res()
+            return res(*self.args, **self.kwargs)
         else:
             return res
 
@@ -537,8 +539,8 @@ class classproperty(object):
             def getx(cls):
                 return cls._x
 
-    Class properties are always read-only, if attribute values must be setted
-    or deleted, a metaclass must be defined.
+    Class properties are always read-only, if attribute values must be set or
+    deleted, a metaclass must be defined.
 
     '''
     def __init__(self, fget):
@@ -601,10 +603,8 @@ def setdefaultattr(obj, name, value):
 def full_nameof(target):
     '''Gets the full name of an object:
 
-    .. warning::
-
-       *Deprecated since 1.4.0*. Use :func:`xoutil.names.nameof` with the
-       `full` argument.
+    .. deprecated:: 1.4.0 Use :func:`xoutil.names.nameof` with the `full`
+       argument.
 
     '''
     from xoutil.compat import py3k, str_base
@@ -749,9 +749,10 @@ def smart_copy(*args, **kwargs):
     '''
     from collections import Mapping, MutableMapping
     from xoutil.compat import callable, str_base
-    from xoutil.types import Unset, Required, DictProxyType
+    from xoutil import Unset
     from xoutil.types import FunctionType as function
-    from xoutil.types import is_collection
+    from xoutil.types import is_collection, Required
+    from xoutil.types import DictProxyType
     from xoutil.data import adapt_exception
     from xoutil.validators.identifiers import is_valid_identifier
     defaults = get_and_del_key(kwargs, 'defaults', default=Unset)
