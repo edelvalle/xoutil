@@ -4,8 +4,8 @@ import sys, os
 #    sys.path.remove(os.path.abspath('.'))
 #except :
 #    pass
+#sys.path.reverse()
 
-sys.path.reverse()
 import datetime
 import calendar
 from dateutil import easter
@@ -27,16 +27,16 @@ class workcalendar:
         return datetime.datetime.strptime(str_day, "%Y-%m-%d")
 
     def get_period_begin_date(self, day):
-        '''
+        """
         Given a day, return the period's begin date, which may be in the same year
         or the previous, according to the fiscal year
 
         Examples:
 
-            >>> from xoutil.workcalendar import workcalendar
+            >>> import workcalendar
             >>> import datetime
             >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
-            >>> wc = workcalendar(c, 10)
+            >>> wc = workcalendar.workcalendar(c, 10)
             >>> d = datetime.datetime.strptime("2012-10-07", "%Y-%m-%d")
             >>> pbd = wc.get_period_begin_date(d)
             >>> pbd == datetime.datetime.strptime("2012-10-01", "%Y-%m-%d")
@@ -52,7 +52,7 @@ class workcalendar:
             >>> pbd == datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
             True
 
-        '''
+        """
         if day.month >= self.fiscal_year_begin_month:
             year = day.year
         else:
@@ -60,16 +60,16 @@ class workcalendar:
         return max(self.create_date(str(year)+"-"+str(self.fiscal_year_begin_month)+"-01"), self.contract_begin_date)
 
     def get_prev_period_begin_date(self, day):
-        '''
+        """
         Given a day, return the previous period's begin date, which may be in
         the same year or the previous, according to the fiscal year;
 
         Examples:
 
-            >>> from xoutil.workcalendar import workcalendar
+            >>> import workcalendar
             >>> import datetime
             >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
-            >>> wc = workcalendar(c, 10)
+            >>> wc = workcalendar.workcalendar(c, 10)
             >>> d = datetime.datetime.strptime("2012-10-07", "%Y-%m-%d")
             >>> pbd = wc.get_prev_period_begin_date(d)
             >>> pbd == datetime.datetime.strptime("2011-10-01", "%Y-%m-%d")
@@ -85,7 +85,7 @@ class workcalendar:
             >>> pbd == None
             True
 
-        '''
+        """
         this_period_first_date	= self.get_period_begin_date(day)
         if this_period_first_date == self.contract_begin_date:
             return None
@@ -93,7 +93,36 @@ class workcalendar:
         return self.get_period_begin_date(prev_period_last_date)
 
     def get_worked_months(self, date1, date2):
+        """
+        Given two dates in a fiscal year, return the complete worked months
+        between them;
 
+        Examples:
+
+            >>> import workcalendar
+            >>> wc = workcalendar.workcalendar(None, 1)
+            >>> import datetime
+            >>> d1 = datetime.datetime.strptime("2011-12-05", "%Y-%m-%d")
+            >>> d2 = datetime.datetime.strptime("2012-01-07", "%Y-%m-%d")
+            >>> wc.get_worked_months(d1, d2)
+            0
+
+            >>> d1 = datetime.datetime.strptime("2011-12-01", "%Y-%m-%d")
+            >>> d2 = datetime.datetime.strptime("2012-01-07", "%Y-%m-%d")
+            >>> wc.get_worked_months(d1, d2)
+            1
+
+            >>> d1 = datetime.datetime.strptime("2011-12-05", "%Y-%m-%d")
+            >>> d2 = datetime.datetime.strptime("2012-01-31", "%Y-%m-%d")
+            >>> wc.get_worked_months(d1, d2)
+            1
+
+            >>> d1 = datetime.datetime.strptime("2011-12-01", "%Y-%m-%d")
+            >>> d2 = datetime.datetime.strptime("2012-01-31", "%Y-%m-%d")
+            >>> wc.get_worked_months(d1, d2)
+            2
+
+        """
         worked_months = date2.month - date1.month
         if worked_months < 0:
             worked_months = (12 - date1.month) + date2.month
@@ -105,16 +134,89 @@ class workcalendar:
         return max(0, worked_months)
 
     def get_worked_months_in_period(self, day):
-        return get_worked_months(get_period_begin_date(day), day)
+        """
+        Given a day, return the complete worked months in the period;
+
+        Examples:
+
+            >>> import workcalendar
+            >>> import datetime
+            >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
+            >>> wc = workcalendar.workcalendar(c, 10)
+            >>> d = datetime.datetime.strptime("2012-10-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_period(d)
+            0
+
+            >>> d = datetime.datetime.strptime("2012-06-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_period(d)
+            8
+
+            >>> d = datetime.datetime.strptime("2010-09-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_period(d)
+            8
+        """
+        return self.get_worked_months(self.get_period_begin_date(day), day)
 
     def get_worked_months_in_prev_period(self, day):
-        prev_period_begin_date = get_prev_period_begin_date(day)
+        """
+        Given a day, return the complete worked months in the period;
+
+        Examples:
+
+            >>> import workcalendar
+            >>> import datetime
+            >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
+            >>> wc = workcalendar.workcalendar(c, 10)
+            >>> d = datetime.datetime.strptime("2012-10-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_prev_period(d)
+            12
+
+            >>> d = datetime.datetime.strptime("2012-06-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_prev_period(d)
+            12
+
+            >>> d = datetime.datetime.strptime("2011-06-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_prev_period(d)
+            9
+
+            >>> d = datetime.datetime.strptime("2010-09-07", "%Y-%m-%d")
+            >>> wc.get_worked_months_in_prev_period(d)
+            0
+
+        """
+
+        prev_period_begin_date = self.get_prev_period_begin_date(day)
         if prev_period_begin_date:
-            return get_worked_months(prev_period_begin_date, get_period_begin_date(day) - datetime.timedelta(1))
+            return self.get_worked_months(prev_period_begin_date, self.get_period_begin_date(day) - datetime.timedelta(1))
         return 0
 
-    def get_accum_holidays(self, day): # dias acumulados en el periodo anterior
-        return 2.5 * get_worked_months_in_prev_period(day)
+    def get_accum_holidays(self, day):
+        """
+        Given a day, holidays accumuulated in the previous period
+
+        Examples:
+
+            >>> import workcalendar
+            >>> import datetime
+            >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
+            >>> wc = workcalendar.workcalendar(c, 10)
+            >>> d = datetime.datetime.strptime("2012-10-07", "%Y-%m-%d")
+            >>> wc.get_accum_holidays(d)
+            30.0
+
+            >>> d = datetime.datetime.strptime("2012-06-07", "%Y-%m-%d")
+            >>> wc.get_accum_holidays(d)
+            30.0
+
+            >>> d = datetime.datetime.strptime("2011-06-07", "%Y-%m-%d")
+            >>> wc.get_accum_holidays(d)
+            22.5
+
+            >>> d = datetime.datetime.strptime("2010-09-07", "%Y-%m-%d")
+            >>> wc.get_accum_holidays(d)
+            0.0
+        """
+        return 2.5 * self.get_worked_months_in_prev_period(day)
 
     def get_remnant_holidays(self, day): # dias disponibles - dias tomados
 
