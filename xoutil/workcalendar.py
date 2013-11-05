@@ -218,92 +218,140 @@ class workcalendar:
         """
         return 2.5 * self.get_worked_months_in_prev_period(day)
 
-    def get_remnant_holidays(self, day): # dias disponibles - dias tomados
+    def get_remnant_holidays(self, day):
+        """
+        Given a day, return the remnant holidays, i.e. the accumulated holidays minus
+        already used used, requested or confirmed holidays, and holidays taken in advance
+        in the previous period.
 
-        acumm_holidays     = get_accum_holidays(day)
-        reserved_holidays  = get_reserved_holidays(day)
-        requested_holidays = get_requested_holidays(day)
-        self.used_holidays     = get_used_holidays(day)
-        prev_period_last_day = get_period_begin_date(day) - datetime.timedelta(1)
-        prev_used_holidays = get_prev_used_holidays(prev_period_last_day)
+        Example:
 
-        return min(acumm_holidays - self.used_holidays- reserved_holidays - requested_holidays - prev_used_holidays, 30)
+            >>> import workcalendar
+            >>> import datetime
+            >>> c = datetime.datetime.strptime("2011-02-01", "%Y-%m-%d")
+            >>> def create_date_list(str_day, duration):
+            ...   return [datetime.datetime.strptime(str_day, "%Y-%m-%d") + datetime.timedelta(days=x) for x in range(0, duration) ]
+            >>> used_holidays = create_date_list("2011-05-29", 6)
+            >>> wc = workcalendar.workcalendar(c, 6, 'Autrement', used_holidays)
+            >>> d = datetime.datetime.strptime("2011-11-03", "%Y-%m-%d")
+            >>> wc.get_remnant_holidays(d)
+            4.0
+
+            >>> wc.used_holidays += create_date_list("2011-11-5", 10)
+            >>> d = datetime.datetime.strptime("2011-12-03", "%Y-%m-%d")
+            >>> wc.get_remnant_holidays(d)
+            -3.0
+
+            >>> d = datetime.datetime.strptime("2012-06-03", "%Y-%m-%d")
+            >>> wc.get_remnant_holidays(d)
+            27.0
+
+            >>> wc.used_holidays += create_date_list("2012-04-30", 1)
+            >>> wc.get_remnant_holidays(d)
+            25.0
+
+        """
+
+        acumm_holidays       = self.get_accum_holidays(day)
+        requested_holidays   = self.get_requested_holidays(day)
+        confirmed_holidays   = self.get_confirmed_holidays(day)
+        used_holidays        = self.get_used_holidays(day)
+        prev_period_last_day = self.get_period_begin_date(day) - datetime.timedelta(1)
+        prev_used_holidays   = self.get_prev_used_holidays(prev_period_last_day)
+
+        return min(acumm_holidays - used_holidays - requested_holidays - confirmed_holidays- prev_used_holidays, 30)
 
     def get_prev_used_holidays(self, day):
-        period_begin_date = get_period_begin_date(day)
+        """
+        Recursively calculate de holidays used in advance in previous periods
+        """
+        period_begin_date = self.get_period_begin_date(day)
         prev_period_last_day = period_begin_date - datetime.timedelta(1)
-        if period_begin_date == contract_begin_date:
-            a = get_used_holidays(day)
+        if period_begin_date == self.contract_begin_date:
+            a = self.get_used_holidays(day)
             return a
-        b = get_used_holidays(day)
-        c = get_accum_holidays(day)
-        d = get_prev_used_holidays(prev_period_last_day)
+        b = self.get_used_holidays(day)
+        c = self.get_accum_holidays(day)
+        d = self.get_prev_used_holidays(prev_period_last_day)
         return max(d + b - c, 0)
-
-    def get_reserved_holidays(self, day):
-        return 0
 
     def get_requested_holidays(self, day):
         return 0
 
+    def get_confirmed_holidays(self, day):
+        return 0
+
     def get_used_holidays(self, day):
-        period_begin_day = get_period_begin_date(day)
+        """
+        Return the used holidays in day's period, skiping free days (saturday,
+        sundays and festivity days). Fridays and prior festivity days are
+        penalized.
+        """
+        period_begin_day = self.get_period_begin_date(day)
         count = 0
         for holiday in self.used_holidays:
-            if period_begin_day <= holiday <= day and not is_free_day(holiday):
+            if period_begin_day <= holiday <= day and not self.is_free_day(holiday):
                 count += 1
-                if is_penalty_day(holiday):
+                if self.is_penalty_day(holiday):
                     count += 1
-
         return count
 
     def is_free_day(self, day):
-        return is_weekend(day) or is_festivity_day(day)
+        return self.is_weekend(day) or self.is_festivity_day(day)
 
     def is_weekend(self, day):
         return day.weekday() > 4
 
     def is_festivity_day(self, day):
+        """
+        Given a day, return whether if is a festivity day, according to the law
+        """
         festivities = []
-        festivities.append(datetime.datetime.strptime(str(day.year)+"-01-01", "%Y-%m-%d"))
-        festivities.append(datetime.datetime.strptime(str(day.year)+"-05-01", "%Y-%m-%d"))
-        festivities.append(datetime.datetime.strptime(str(day.year)+"-12-25", "%Y-%m-%d"))
-        if False: # Francia
+        if self.law == 'Francesa': # Francia
             p = easter.easter(day.year)
+            festivities.append(datetime.datetime.strptime(str(day.year)+"-01-01", "%Y-%m-%d"))
             festivities.append(p + datetime.timedelta(1)) # lunes de pascua
             festivities.append(p + datetime.timedelta(39)) # jueves de ascencion
             festivities.append(p + datetime.timedelta(50)) # lunes pentecostes
+            festivities.append(datetime.datetime.strptime(str(day.year)+"-05-01", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-05-08", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-07-14", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-08-15", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-11-01", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-11-11", "%Y-%m-%d"))
-        elif True: # Cuba
+            festivities.append(datetime.datetime.strptime(str(day.year)+"-12-25", "%Y-%m-%d"))
+        elif self.law == 'Autrement': # Cuba
+            festivities.append(datetime.datetime.strptime(str(day.year)+"-01-01", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-02-01", "%Y-%m-%d"))
+            festivities.append(datetime.datetime.strptime(str(day.year)+"-05-01", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-07-25", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-07-26", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-07-27", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-10-10", "%Y-%m-%d"))
+            festivities.append(datetime.datetime.strptime(str(day.year)+"-12-25", "%Y-%m-%d"))
             festivities.append(datetime.datetime.strptime(str(day.year)+"-12-31", "%Y-%m-%d"))
 
         return day in festivities
 
     def is_penalty_day(self, day):
+        """
+        Return True if day is a friday or next day is a festivity day
+        """
         if day.weekday() == 4:
             return True
-        return is_festivity_day(day + datetime.timedelta(1))
+        return self.is_festivity_day(day + datetime.timedelta(1))
 
     def reserve_holidays(self, day, duration):
         if duration > 30:
             return "Error: debe reservar menos de 30 dias"
         # alguna regla para reservar? por ejemplo, para reservar sin dias disponibles. Se pueden reservar mas de 30 dias?
 
-    def get_accum_compensatory_days(self, day):
+    def get_accum_compensatory:q_days(self, day):
         count = 0
-        for extra_day in extra_days:
-            if is_festivity_day(extra_day) and  datetime.timedelta(0) < day - extra_day < datetime.timedelta(31):
+        for extra_day in self.extra_days:
+            if self.is_festivity_day(extra_day) and  datetime.timedelta(0) < day - extra_day < datetime.timedelta(31):
                 count += 1
-            elif is_weekend(extra_day) and datetime.timedelta(0) < day - extra_day < datetime.timedelta(7):
+            elif self.is_weekend(extra_day) and datetime.timedelta(0) < day - extra_day < datetime.timedelta(7):
                 count += 1
         return count
 
