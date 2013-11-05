@@ -346,7 +346,7 @@ class workcalendar:
             return "Error: debe reservar menos de 30 dias"
         # alguna regla para reservar? por ejemplo, para reservar sin dias disponibles. Se pueden reservar mas de 30 dias?
 
-    def get_accum_compensatory:q_days(self, day):
+    def get_accum_compensatory_days(self, day):
         count = 0
         for extra_day in self.extra_days:
             if self.is_festivity_day(extra_day) and  datetime.timedelta(0) < day - extra_day < datetime.timedelta(31):
