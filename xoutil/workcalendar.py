@@ -286,14 +286,45 @@ class workcalendar:
         Return the used holidays in day's period, skiping free days (saturday,
         sundays and festivity days). Fridays and prior festivity days are
         penalized.
+        Compensatory days are used if available.
+
+        Example:
+
+            >>> import workcalendar
+            >>> import datetime
+            >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
+            >>> wc = workcalendar.workcalendar(c, 1)
+            >>> wc.used_holidays = [wc.create_date("2011-05-03")]
+            >>> wc.get_used_holidays(wc.create_date("2011-05-05"))
+            1
+
+            >>> wc.used_holidays.append(wc.create_date("2011-05-02"))
+            >>> wc.get_used_holidays(wc.create_date("2011-05-05"))
+            2
+
+            >>> wc.extra_work_days = [wc.create_date("2011-05-01")]
+            >>> wc.get_used_holidays(wc.create_date("2011-05-05"))
+            1
+
+            >>> wc.used_holidays.append(wc.create_date("2011-04-29"))
+            >>> wc.get_used_holidays(wc.create_date("2011-05-05"))
+            3
+
         """
-        period_begin_day = self.get_period_begin_date(day)
+        period_begin_date = self.get_period_begin_date(day)
         count = 0
+        used_dates = []
+        extra_work_days = self.get_extra_work_days(day)
         for holiday in self.used_holidays:
-            if period_begin_day <= holiday <= day and not self.is_free_day(holiday):
+            if period_begin_date <= holiday <= day and not self.is_free_day(holiday):
                 count += 1
+                used_dates.append(holiday)
                 if self.is_penalty_day(holiday):
                     count += 1
+                for extra_work_day in extra_work_days:
+                    if self.compensatory_day_in_scope(extra_work_day, holiday):
+                        count -= 1
+                        extra_work_days.remove(extra_work_day)
         return count
 
     def is_free_day(self, day):
@@ -341,69 +372,57 @@ class workcalendar:
             return True
         return self.is_festivity_day(day + datetime.timedelta(1))
 
-    def reserve_holidays(self, day, duration):
-        if duration > 30:
-            return "Error: debe reservar menos de 30 dias"
-        # alguna regla para reservar? por ejemplo, para reservar sin dias disponibles. Se pueden reservar mas de 30 dias?
-
     def get_accum_compensatory_days(self, day):
+        """
+        Given a day, return the compensatory days accumulated.
+        Compensatory days expired within a week if got from friday
+        or within the next 30 days if got from a festivity day.
+
+        Examples:
+
+            >>> import workcalendar
+            >>> import datetime
+            >>> c = datetime.datetime.strptime("2011-02-01", "%Y-%m-%d")
+            >>> wc = workcalendar.workcalendar(c, 6, 'Autrement')
+            >>> wc.extra_work_days = [wc.create_date("2012-05-27"), wc.create_date("2012-05-20"), wc.create_date("2012-05-01")]
+            >>> d = datetime.datetime.strptime("2012-06-01", "%Y-%m-%d")
+            >>> wc.get_accum_compensatory_days(d)
+            1
+
+            >>> d = datetime.datetime.strptime("2012-05-30", "%Y-%m-%d")
+            >>> wc.get_accum_compensatory_days(d)
+            2
+
+            >>> d = datetime.datetime.strptime("2012-05-24", "%Y-%m-%d")
+            >>> wc.get_accum_compensatory_days(d)
+            2
+
+        """
         count = 0
-        for extra_day in self.extra_days:
-            if self.is_festivity_day(extra_day) and  datetime.timedelta(0) < day - extra_day < datetime.timedelta(31):
+        for extra_work_day in self.extra_work_days:
+            if self.is_festivity_day(extra_work_day) and  datetime.timedelta(0) < day - extra_work_day < datetime.timedelta(31):
                 count += 1
-            elif self.is_weekend(extra_day) and datetime.timedelta(0) < day - extra_day < datetime.timedelta(7):
+            elif self.is_weekend(extra_work_day) and datetime.timedelta(0) < day - extra_work_day < datetime.timedelta(7):
                 count += 1
         return count
 
-#def print_values(day):
-#
-##    print "contract        ", contract_begin_date
-##    print "today           ", day
-##    print "period bdate    ", get_period_begin_date(day)
-##    print "pperiod bdate   ", get_prev_period_begin_date(day)
-##    print "period wmonths  ", get_worked_months_in_period(day)
-##    print "pperiod wmonths ", get_worked_months_in_prev_period(day)
-##    print "accum days      ", get_accum_holidays(day)
-##    print "used holidays   ", get_used_holidays(day)
-##    print "remnant days    ", get_remnant_holidays(day)
-##    print "compensat days  ", get_accum_compensatory_days(day)
-##
-##    print "-----"
-#    pass
-#
-## ===================================================
-#
-##d1 = datetime.datetime.strptime("2013-05-29", "%Y-%m-%d")
-##
-##d2 = datetime.datetime.strptime("2013-10-02", "%Y-%m-%d")
-##
-##used_holidays 		= []
-##base				= datetime.datetime.strptime("2013-02-5", "%Y-%m-%d")
-##used_holidays 		= [ base - datetime.timedelta(days=x) for x in range(0,10) ]
-##
-##reserved_holidays 	= []
-##requested_holidays 	= []
-#
-####### test case 1
-#
-#
-#def create_date_list(str_day, duration):
-#    return [datetime.datetime.strptime(str_day, "%Y-%m-%d") + datetime.timedelta(days=x) for x in range(0, duration) ]
-#
-#contract_begin_date	= create_date("2011-02-01")
-#
-## vacaciones tomadas
-#used_holidays       = create_date_list("2011-05-29", 6) + create_date_list("2011-12-25", 10) + create_date_list("2012-12-25", 20)
-#
-## dias no laborables trabajados
-#extra_days          = [create_date("2012-05-27"), create_date("2012-05-20"), create_date("2012-05-01")]
-## domingo de esa semana, domingo de la anterior, 1 de mayo
-#
-#d = create_date("2012-06-01")
-#print_values(d)
-#
-## ====================================================
-#
+    def get_extra_work_days(self, day):
+        """
+        Return worked free days in day's period
+        """
+        period_begin_date = self.get_period_begin_date(day)
+        return [extra_work_day for extra_work_day in self.extra_work_days if period_begin_date <= extra_work_day <= day]
+
+    def compensatory_day_in_scope(self, extra_work_day, holiday):
+        """
+        Return True if holiday is in extra_work_day's scope
+        """
+        if self.is_festivity_day(extra_work_day) and  datetime.timedelta(0) < holiday - extra_work_day < datetime.timedelta(31):
+            return True
+        elif self.is_weekend(extra_work_day) and datetime.timedelta(0) < holiday - extra_work_day < datetime.timedelta(7):
+            return True
+        return False
+
 ## TODO:
 ## get_available_free_days: los dias que quedan de vacaciones mas los dias compensatorios
 ## reservar dias
