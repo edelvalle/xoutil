@@ -222,7 +222,7 @@ class workcalendar:
         """
         Given a day, return the remnant holidays, i.e. the accumulated holidays minus
         already used used, requested or confirmed holidays, and holidays taken in advance
-        in the previous period.
+        in the previous period, plus the compensatory days.
 
         Example:
 
@@ -242,7 +242,7 @@ class workcalendar:
             >>> wc.get_remnant_holidays(d)
             -3.0
 
-            >>> d = datetime.datetime.strptime("2012-06-03", "%Y-%m-%d")
+            >>> d = datetime.datetime.strptime("2012-06-05", "%Y-%m-%d")
             >>> wc.get_remnant_holidays(d)
             27.0
 
@@ -250,12 +250,16 @@ class workcalendar:
             >>> wc.get_remnant_holidays(d)
             25.0
 
+            >>> wc.extra_work_days = [wc.create_date("2012-06-03")]
+            >>> wc.get_remnant_holidays(d)
+            26.0
+
         """
 
         acumm_holidays       = self.get_accum_holidays(day)
         requested_holidays   = self.get_requested_holidays(day)
         confirmed_holidays   = self.get_confirmed_holidays(day)
-        used_holidays        = self.get_used_holidays(day)
+        used_holidays        = self.get_used_holidays(day, True)
         prev_period_last_day = self.get_period_begin_date(day) - datetime.timedelta(1)
         prev_used_holidays   = self.get_prev_used_holidays(prev_period_last_day)
 
@@ -281,7 +285,7 @@ class workcalendar:
     def get_confirmed_holidays(self, day):
         return 0
 
-    def get_used_holidays(self, day):
+    def get_used_holidays(self, day, plus_extra_days=False):
         """
         Return the used holidays in day's period, skiping free days (saturday,
         sundays and festivity days). Fridays and prior festivity days are
@@ -293,7 +297,7 @@ class workcalendar:
             >>> import workcalendar
             >>> import datetime
             >>> c = datetime.datetime.strptime("2010-01-01", "%Y-%m-%d")
-            >>> wc = workcalendar.workcalendar(c, 1)
+            >>> wc = workcalendar.workcalendar(c, 6)
             >>> wc.used_holidays = [wc.create_date("2011-05-03")]
             >>> wc.get_used_holidays(wc.create_date("2011-05-05"))
             1
@@ -310,6 +314,16 @@ class workcalendar:
             >>> wc.get_used_holidays(wc.create_date("2011-05-05"))
             3
 
+        If plus_extra_day is True, compensatory days are added if available
+
+            >>> wc.extra_work_days.append(wc.create_date("2011-05-29"))
+            >>> wc.get_used_holidays(wc.create_date("2011-06-03"))
+            0
+
+            >>> wc.get_used_holidays(wc.create_date("2011-06-03"), True)
+            -1
+
+
         """
         period_begin_date = self.get_period_begin_date(day)
         count = 0
@@ -325,6 +339,12 @@ class workcalendar:
                     if self.compensatory_day_in_scope(extra_work_day, holiday):
                         count -= 1
                         extra_work_days.remove(extra_work_day)
+
+        if plus_extra_days:
+            for extra_work_day in extra_work_days:
+                if self.compensatory_day_in_scope(extra_work_day, day):
+                    count -= 1
+
         return count
 
     def is_free_day(self, day):
@@ -408,10 +428,12 @@ class workcalendar:
 
     def get_extra_work_days(self, day):
         """
-        Return worked free days in day's period
+        Return worked free days in day's period, including a previous worked days 31
+        days before the begining of the period, because it could be used as compensatory
+        days in the period.
         """
         period_begin_date = self.get_period_begin_date(day)
-        return [extra_work_day for extra_work_day in self.extra_work_days if period_begin_date <= extra_work_day <= day]
+        return [extra_work_day for extra_work_day in self.extra_work_days if period_begin_date - datetime.timedelta(31) <= extra_work_day <= day]
 
     def compensatory_day_in_scope(self, extra_work_day, holiday):
         """
