@@ -445,12 +445,20 @@ class workcalendar:
             return True
         return False
 
+    def get_requested_holidays(self, day):
+        """
+        Return the requested holidays, checking that no free days or past requested
+        holidays are counted
+        """
+        return len(self.requested_holidays)
+
+    def get_confirmed_holidays(self, day):
+        return len(self.confirmed_holidays)
+
 ## TODO:
 ## get_available_free_days: los dias que quedan de vacaciones mas los dias compensatorios
 ## reservar dias
 ## pedir dias
-## trabajar dias extras
-## saldo de dias extras
 ## tema de los dias extras cubanos, aqui arreglar el penalty si es preciso
 
 if __name__ == "__main__":
