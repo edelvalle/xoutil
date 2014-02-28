@@ -3,15 +3,9 @@
 
 .. automodule:: xoutil.iterators
    :members: dict_update_new, fake_dict_iteritems, first_n, first_non_null,
-	     slides
-
-.. autofunction:: smart_dict(defaults, *sources)
-
-.. autofunction:: obtain(predicate, default=None)
+	     slides, continuously_slides
 
 .. autofunction:: flatten(sequence, is_scalar=xoutil.types.is_scalar, depth=None)
-
-.. autofunction:: get_flat_list(iterable)
 
 .. function:: xoutil.iterators.zip([iter1[, iter2[, ...]]])
 
@@ -32,10 +26,18 @@
    This method is actually the stardard ``itertools.imap`` when in Python 2.7,
    and the builtin ``map`` when in Python 3.
 
-.. function:: xoutil.iterators.izip
+.. function:: xoutil.iterators.zip_longest(*iterables, fillvalue=None)
 
-   An alias to :func:`zip`.
+   Make an iterator that aggregates elements from each of the iterables. If the
+   iterables are of uneven length, missing values are filled-in with
+   fillvalue. Iteration continues until the longest iterable is
+   exhausted.
 
-.. function:: xoutil.iterators.imap
+   If one of the iterables is potentially infinite, then the
+   :func:`zip_longest` function should be wrapped with something that limits
+   the number of calls (for example :func:`islice` or :func:`takewhile`). If
+   not specified, `fillvalue` defaults to None.
 
-   An alias to :func:`map`.
+   This function is actually an alias to :func:`itertools.izip_longest` in
+   Python 2.7, and an alias to :func:`itertools.zip_longest` in Python
+   3.3.

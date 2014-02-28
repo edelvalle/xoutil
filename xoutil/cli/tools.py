@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.cli.tools
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
@@ -39,16 +39,25 @@ def command_name(cls):
     It's defined as an external function because a class method don't apply to
     minimal commands (those with only the "run" method).
 
+    Example::
+
+        >>> class SomeCommand(object):
+        ...     pass
+
+        >>> command_name(SomeCommand) == 'some-command'
+        True
+
     '''
-    from StringIO import StringIO
+    from io import StringIO
+    from xoutil.string import safe_decode
     buf = StringIO()
     start = True
     for letter in cls.__name__:
         if letter.isupper():
             if not start:
-                buf.write(str('-'))
+                buf.write(safe_decode('-'))
             letter = letter.lower()
-        buf.write(letter)
+        buf.write(safe_decode(letter))
         start = False
     buf.flush()
     res = buf.getvalue()

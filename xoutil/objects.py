@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.objects
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # Copyright (c) 2012 Medardo Rodríguez
 # All rights reserved.
 #
@@ -23,41 +23,31 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import)
 
+from xoutil import Unset
 from xoutil.compat import py3k as _py3k
 from xoutil.deprecation import deprecated
 
 from xoutil.names import strlist as slist
-__all__ = slist('nameof', 'smart_getter', 'smart_getter_and_deleter',
+__all__ = slist('smart_getter', 'smart_getter_and_deleter',
                 'xdir', 'fdir', 'validate_attrs', 'get_first_of',
-                'get_and_del_first_of', 'smart_getattr', 'get_and_del_attr',
-                'setdefaultattr', 'full_nameof', 'copy_class', 'smart_copy',
+                'pop_first_of', 'smart_getattr', 'popattr',
+                'setdefaultattr', 'copy_class', 'smart_copy',
                 'extract_attrs')
 del slist
 
 __docstring_format__ = 'rst'
 __author__ = 'manu'
 
+
+_INVALID_CLASS_TYPE_MSG = '``cls`` must be a class not an instance'
+
+# === Helper functions ====
+
+_len = lambda x: len(x) if x else 0
+
 # These two functions can be use to always return True or False
 _true = lambda *args, **kwargs: True
 _false = lambda *args, **kwargs: False
-
-
-# TODO: Deprecate and restructure all its uses
-@deprecated('xoutil.names.nameof')
-def nameof(target):
-    '''Gets the name of an object.
-
-    .. warning::
-
-       *Deprecated since version 1.4.0.* Use :func:`xoutil.names.nameof`.
-
-    '''
-    from xoutil.names import nameof as wrapped
-    from xoutil.compat import str_base
-    if isinstance(target, str_base):
-        return wrapped(target, depth=2, inner=True)
-    else:
-        return wrapped(target, depth=2, inner=True, typed=True)
 
 
 def smart_getter(obj):
@@ -75,8 +65,6 @@ def smart_getter(obj):
     else:
         return lambda attr, default=None: getattr(obj, attr, default)
 
-smart_get = deprecated(smart_getter)(smart_getter)
-
 
 def smart_getter_and_deleter(obj):
     '''Returns a function that get and deletes either a key or an attribute of
@@ -91,11 +79,9 @@ def smart_getter_and_deleter(obj):
     if isinstance(obj, Mapping) and not isinstance(obj, MutableMapping):
         raise TypeError('If `obj` is a Mapping it must be a MutableMapping')
     if isinstance(obj, MutableMapping):
-        return partial(get_and_del_key, obj)
+        return lambda key, default=None: obj.pop(key, default)
     else:
-        return partial(get_and_del_attr, obj)
-
-smart_get_and_del = deprecated(smart_getter_and_deleter)(smart_getter_and_deleter)
+        return partial(popattr, obj)
 
 
 def is_private_name(name):
@@ -150,6 +136,136 @@ def attrclass(obj, name):
         return next((cls for cls in cls_chcks if cls is not None), None)
 
 
+# TODO: [med] [manu] Decide if it's best to create a 'xoutil.inspect' that
+# extends the standard library module 'inspect' and place this
+# signature-dealing functions there. Probably, to be consistent, this imposes a
+# refactoring of some of 'xoutil.types' and move all the "is_classmethod",
+# "is_staticmethod" and inspection-related functions there.
+def get_method_function(cls, method_name):
+    '''Get definition function given in its :param:`method_name`.
+
+    There is a difference between the result of this function and
+    ``getattr(cls, method_name)`` because the last one return the unbound
+    method and this a python function.
+
+    '''
+    if not isinstance(cls, type):
+        cls = cls.__class__
+    mro = cls.mro()
+    i, res = 0, None
+    while not res and (i < len(mro)):
+        sc = mro[i]
+        method = sc.__dict__.get(method_name)
+        if callable(method):
+            res = method
+        else:
+            i += 1
+    return res
+
+
+def build_documentation(cls, get_doc=None, deep=1):
+    '''Build a proper documentation from a class :param:`cls`.
+
+    Classes are recursed in MRO until process all levels (:param:`deep`)
+    building the resulting documentation.
+
+    The function :param:`get_doc` get the documentation of a given class. If
+    no function is given, then attribute ``__doc__`` is used.
+
+    '''
+    from xoutil.string import safe_decode
+    assert isinstance(cls, type), _INVALID_CLASS_TYPE_MSG
+    if deep < 1:
+        deep = 1
+    get_doc = get_doc or (lambda c: c.__doc__)
+    mro = cls.mro()
+    i, level, used, res = 0, 0, {}, ''
+    while (level < deep) and (i < len(mro)):
+        sc = mro[i]
+        doc = get_doc(sc)
+        if doc:
+            doc = safe_decode(doc).strip()
+            key = sc.__name__
+            docs = used.setdefault(key, set())
+            if doc not in docs:
+                docs.add(doc)
+                if res:
+                    res += '\n\n'
+                res += '=== <%s> ===\n\n%s' % (key, doc)
+                level += 1
+        i += 1
+    return res
+
+
+def fix_class_documentation(cls, ignore=None, min_length=10, deep=1,
+                            default=None):
+    '''Fix the documentation for the given class using its super-classes.
+
+    This function may be useful for shells or Python Command Line Interfaces
+    (CLI).
+
+    If :param:`cls` has an invalid documentation, super-classes are recursed
+    in MRO until a documentation definition was made at any level.
+
+    :param:`ignore` could be used to specify which classes to ignore by
+                    specifying its name in this list.
+
+    :param:`min_length` specify that documentations with less that a number of
+                        characters, also are ignored.
+
+    '''
+    assert isinstance(cls, type), _INVALID_CLASS_TYPE_MSG
+    if _len(cls.__doc__) < min_length:
+        ignore = ignore or ()
+        def get_doc(c):
+            if (c.__name__ not in ignore) and _len(c.__doc__) >= min_length:
+                return c.__doc__
+            else:
+                return None
+        doc = build_documentation(cls, get_doc, deep)
+        if doc:
+            cls.__doc__ = doc
+        elif default:
+            cls.__doc__ = default(cls) if callable(default) else default
+
+
+def fix_method_documentation(cls, method_name, ignore=None, min_length=10,
+                             deep=1, default=None):
+    '''Fix the documentation for the given class using its super-classes.
+
+    This function may be useful for shells or Python Command Line Interfaces
+    (CLI).
+
+    If :param:`cls` has an invalid documentation, super-classes are recursed
+    in MRO until a documentation definition was made at any level.
+
+    :param:`ignore` could be used to specify which classes to ignore by
+                    specifying its name in this list.
+
+    :param:`min_length` specify that documentations with less that a number of
+                        characters, also are ignored.
+
+    '''
+    assert isinstance(cls, type), _INVALID_CLASS_TYPE_MSG
+    method = get_method_function(cls, method_name)
+    if method and _len(method.__doc__) < min_length:
+        ignore = ignore or ()
+        def get_doc(c):
+            if (c.__name__ not in ignore):
+                method = c.__dict__.get(method_name)
+                if callable(method) and _len(method.__doc__) >= min_length:
+                    return method.__doc__
+                else:
+                    return None
+            else:
+                return None
+        doc = build_documentation(cls, get_doc, deep)
+        if doc:
+            method.__doc__ = doc
+        elif default:
+            method.__doc__ = default(cls) if callable(default) else default
+
+
 # TODO: [med] Explain "valid" in documentation.
 def fulldir(obj):
     '''Return a set with all valid attribute names defined in `obj`'''
@@ -195,6 +311,8 @@ def xdir(obj, attr_filter=None, value_filter=None, getter=None, filter=None, _de
 
     :param getter: *optional* A function with the same signature that
                    ``getattr`` to be used to get the values from `obj`.
+
+    .. deprecated:: 1.4.1 The use of params `attr_filter` and `value_filter`.
 
     '''
     getter = getter or getattr
@@ -271,10 +389,10 @@ def validate_attrs(source, target, force_equals=(), force_differents=()):
     j = 0
     get_from_source = smart_getter(source)
     get_from_target = smart_getter(target)
-    while res and  (j < len(tests)):
+    while res and (j < len(tests)):
         fail, attrs = tests[j]
         i = 0
-        while res and  (i < len(attrs)):
+        while res and (i < len(attrs)):
             attr = attrs[i]
             if fail(get_from_source(attr), get_from_target(attr)):
                 res = False
@@ -284,93 +402,69 @@ def validate_attrs(source, target, force_equals=(), force_differents=()):
     return res
 
 
-def get_first_of(source, *keys, **kwargs):
-    '''Return the first occurrence of any of the specified keys in `source`.
+def iterate_over(source, *keys):
+    '''Yields pairs of (key, value) for of all `keys` in `source`.
 
-    If `source` is a tuple, a list, a set, or a generator; then the keys are
-    searched in all the items.
+    If any `key` is missing from `source` is ignored (not yielded).
 
-    Examples:
+    If `source` is a `collection <xoutil.types.is_collection>`:func:, iterate
+    over each of the items searching for any of keys.  This is not recursive.
 
-    - To search some keys (whatever is found first) from a dict::
+    If no `keys` are provided, return an "empty" iterator -- i.e will raise
+    StopIteration upon calling `next`.
 
-        >>> somedict = {"foo": "bar", "spam": "eggs"}
-        >>> get_first_of(somedict, "no", "foo", "spam")
-        'bar'
-
-    - If a key/attr is not found, None is returned::
-
-        >>> somedict = {"foo": "bar", "spam": "eggs"}
-        >>> get_first_of(somedict, "eggs") is None
-        True
-
-    - Objects may be sources as well::
-
-        >>> class Someobject(object): pass
-        >>> inst = Someobject()
-        >>> inst.foo = 'bar'
-        >>> inst.eggs = 'spam'
-        >>> get_first_of(inst, 'no', 'eggs', 'foo')
-        'spam'
-
-        >>> get_first_of(inst, 'invalid') is None
-        True
-
-    - You may pass several sources in a list, tuple or generator, and
-      `get_first` will try each object at a time until it finds any of
-      the key on a object; so any object that has one of the keys will
-      "win"::
-
-        >>> somedict = {"foo": "bar", "spam": "eggs"}
-        >>> class Someobject(object): pass
-        >>> inst = Someobject()
-        >>> inst.foo = 'bar2'
-        >>> inst.eggs = 'spam'
-        >>> get_first_of((somedict, inst), 'eggs')
-        'spam'
-
-        >>> get_first_of((somedict, inst), 'foo')
-        'bar'
-
-        >>> get_first_of((inst, somedict), 'foo')
-        'bar2'
-
-        >>> get_first_of((inst, somedict), 'foobar') is None
-        True
-
-    You may pass a keywork argument called `default` with the value
-    you want to be returned if no key is found in source::
-
-        >>> none = object()
-        >>> get_first_of((inst, somedict), 'foobar', default=none) is none
-        True
+    .. versionadded:: 1.5.2
 
     '''
-    from xoutil import Unset
     from xoutil.types import is_collection
     def inner(source):
         get = smart_getter(source)
-        res, i = Unset, 0
-        while (res is Unset) and (i < len(keys)):
-            res = get(keys[i], Unset)
-            i += 1
-        return res
+        for key in keys:
+            val = get(key, Unset)
+            if val is not Unset:
+                yield key, val
+
+    def when_collection(source):
+        from xoutil.compat import map
+        for generator in map(inner, source):
+            for key, val in generator:
+                yield key, val
 
     if is_collection(source):
-        from xoutil.compat import map
-        from itertools import takewhile
-        res = Unset
-        for item in takewhile(lambda _: res is Unset, map(inner, source)):
-            if item is not Unset:
-                res = item
+        res = when_collection(source)
     else:
         res = inner(source)
-    return res if res is not Unset else kwargs.get('default', None)
+    return res
 
 
-def get_and_del_first_of(source, *keys, **kwargs):
-    '''Similar to :func:`get_first_of` but uses either :func:`get_and_del_attr`
-    or :func:`get_and_del_key` to get and del the first key.
+def get_first_of(source, *keys, **kwargs):
+    '''Return the value of the first occurrence of any of the specified `keys` in
+    `source` that matches `pred` (if given).
+
+    Both `source` and `keys` has the same meaning as in :func:`iterate_over`.
+
+    :param default: A value to be returned if no key is found in `source`.
+
+    :param pred:  A function that should receive a single value and return
+                  False if the value is not acceptable, and thus
+                  `get_first_of` should look for another.
+
+    .. versionchanged:: 1.5.2  Added the `pred` option.
+
+    '''
+    default = kwargs.pop('default', None)
+    pred = kwargs.pop('pred', None)
+    if kwargs:
+        raise TypeError('Invalid keywords %s for get_first_of' %
+                        (kwargs.keys(), ))
+    _key, res = next(((k, val) for k, val in iterate_over(source, *keys)
+                      if not pred or pred(val)), (Unset, Unset))
+    return res if res is not Unset else default
+
+
+def pop_first_of(source, *keys, **kwargs):
+    '''Similar to :func:`get_first_of` using as `source` either an object or a
+    mapping and deleting the first attribute or key.
 
     Examples::
 
@@ -381,26 +475,25 @@ def get_and_del_first_of(source, *keys, **kwargs):
         >>> foo.bar = 'bar-obj'
         >>> foo.eggs = 'eggs-obj'
 
-        >>> get_and_del_first_of((somedict, foo), 'eggs')
+        >>> pop_first_of((somedict, foo), 'eggs')
         'eggs-dict'
 
-        >>> get_and_del_first_of((somedict, foo), 'eggs')
+        >>> pop_first_of((somedict, foo), 'eggs')
         'eggs-obj'
 
-        >>> get_and_del_first_of((somedict, foo), 'eggs') is None
+        >>> pop_first_of((somedict, foo), 'eggs') is None
         True
 
-        >>> get_and_del_first_of((foo, somedict), 'bar')
+        >>> pop_first_of((foo, somedict), 'bar')
         'bar-obj'
 
-        >>> get_and_del_first_of((foo, somedict), 'bar')
+        >>> pop_first_of((foo, somedict), 'bar')
         'bar-dict'
 
-        >>> get_and_del_first_of((foo, somedict), 'bar') is None
+        >>> pop_first_of((foo, somedict), 'bar') is None
         True
 
     '''
-    from xoutil import Unset
     from xoutil.types import is_collection
     def inner(source):
         get = smart_getter_and_deleter(source)
@@ -422,36 +515,26 @@ def get_and_del_first_of(source, *keys, **kwargs):
     return res if res is not Unset else kwargs.get('default', None)
 
 
+get_and_del_first_of = deprecated(pop_first_of)(pop_first_of)
+
+
+@deprecated(get_first_of)
 def smart_getattr(name, *sources, **kwargs):
-    '''Gets an attr by `name` for the first source that has it::
+    '''Gets an attr by `name` for the first source that has it.
 
-        >>> somedict = {'foo': 'bar', 'spam': 'eggs'}
-        >>> class Some(object): pass
-        >>> inst = Some()
-        >>> inst.foo = 'bar2'
-        >>> inst.eggs = 'spam'
+    This is roughly that same as::
 
-        >>> smart_getattr('foo', somedict, inst)
-        'bar'
+       get_first_of(sources, name, default=Unset, **kwargs)
 
-        >>> smart_getattr('foo', inst, somedict)
-        'bar2'
-
-        >>> from xoutil import Unset
-        >>> smart_getattr('fail', somedict, inst) is Unset
-        True
-
-    You may pass all keyword arguments supported by
-    :func:`get_first_of`_.
+    .. warning:: Deprecated since 1.5.1
 
     '''
-    from xoutil import Unset
     from xoutil.iterators import dict_update_new
     dict_update_new(kwargs, {'default': Unset})
     return get_first_of(sources, name, **kwargs)
 
 
-def get_and_del_attr(obj, name, default=None):
+def popattr(obj, name, default=None):
     '''Looks for an attribute in the `obj` and returns its value and removes
     the attribute. If the attribute is not found, `default` is returned
     instead.
@@ -462,15 +545,14 @@ def get_and_del_attr(obj, name, default=None):
         ...   a = 1
         >>> foo = Foo()
         >>> foo.a = 2
-        >>> get_and_del_attr(foo, 'a')
+        >>> popattr(foo, 'a')
         2
-        >>> get_and_del_attr(foo, 'a')
+        >>> popattr(foo, 'a')
         1
-        >>> get_and_del_attr(foo, 'a') is None
+        >>> popattr(foo, 'a') is None
         True
 
     '''
-    from xoutil import Unset
     res = getattr(obj, name, Unset)
     if res is Unset:
         res = default
@@ -484,30 +566,20 @@ def get_and_del_attr(obj, name, default=None):
                 pass
     return res
 
+get_and_del_attr = deprecated(popattr)(popattr)
 
+@deprecated('pop', 'Use dict.pop() with default=None.')
 def get_and_del_key(d, key, default=None):
     '''Looks for a key in the dict `d` and returns its value and removes the
     key. If the attribute is not found, `default` is returned instead.
 
-    Examples::
+    This is the same as ``d.pop(key, default)``.
 
-        >>> foo = dict(a=1)
-        >>> get_and_del_key(foo, 'a')
-        1
-        >>> get_and_del_key(foo, 'a') is None
-        True
+    .. warning:: Deprecated since 1.5.2.  Use :meth:`d.pop(key, default)
+       <dict.pop>`.
 
     '''
-    from xoutil import Unset
-    res = d.get(key, Unset)
-    if res is Unset:
-        res = default
-    else:
-        try:
-            del d[key]
-        except IndexError:
-            pass
-    return res
+    return d.pop(key, default)
 
 
 class lazy(object):
@@ -515,14 +587,16 @@ class lazy(object):
     :func:`setdefaultattr`.
 
     '''
-    def __init__(self, value):
+    def __init__(self, value, *args, **kwargs):
         self.value = value
+        self.args = args
+        self.kwargs = kwargs
 
     def __call__(self):
         from xoutil.compat import callable
         res = self.value
         if callable(res):
-            return res()
+            return res(*self.args, **self.kwargs)
         else:
             return res
 
@@ -537,8 +611,8 @@ class classproperty(object):
             def getx(cls):
                 return cls._x
 
-    Class properties are always read-only, if attribute values must be setted
-    or deleted, a metaclass must be defined.
+    Class properties are always read-only, if attribute values must be set or
+    deleted, a metaclass must be defined.
 
     '''
     def __init__(self, fget):
@@ -586,7 +660,6 @@ def setdefaultattr(obj, name, value):
         'a'
 
     '''
-    from xoutil import Unset
     res = getattr(obj, name, Unset)
     if res is Unset:
         if isinstance(value, lazy):
@@ -594,30 +667,6 @@ def setdefaultattr(obj, name, value):
         setattr(obj, name, value)
         res = value
     return res
-
-
-# TODO: Use "xoutil.names.nameof" with "full=True, inner=True, typed=True"
-@deprecated('xoutil.names.nameof')
-def full_nameof(target):
-    '''Gets the full name of an object:
-
-    .. warning::
-
-       *Deprecated since 1.4.0*. Use :func:`xoutil.names.nameof` with the
-       `full` argument.
-
-    '''
-    from xoutil.compat import py3k, str_base
-    if isinstance(target, str_base):
-        return target
-    else:
-        if not hasattr(target, '__name__'):
-            target = type(target)
-        res = target.__name__
-        mod = getattr(target, '__module__', '__')
-        if not mod.startswith('__') and (not py3k or mod != 'builtins'):
-            res = '.'.join((mod, res))
-        return res
 
 
 def copy_class(cls, meta=None, ignores=None, new_attrs=None):
@@ -749,19 +798,19 @@ def smart_copy(*args, **kwargs):
     '''
     from collections import Mapping, MutableMapping
     from xoutil.compat import callable, str_base
-    from xoutil.types import Unset, Required, DictProxyType
     from xoutil.types import FunctionType as function
-    from xoutil.types import is_collection
+    from xoutil.types import is_collection, Required
+    from xoutil.types import DictProxyType
     from xoutil.data import adapt_exception
     from xoutil.validators.identifiers import is_valid_identifier
-    defaults = get_and_del_key(kwargs, 'defaults', default=Unset)
+    defaults = kwargs.pop('defaults', Unset)
     if kwargs:
         raise TypeError('smart_copy does not accept a "%s" keyword argument'
                         % kwargs.keys()[0])
     if defaults is Unset and len(args) >= 3:
         args, last = args[:-1], args[-1]
-        if isinstance(last, bool) or isinstance(last, function):
-            defaults = last
+        if isinstance(last, bool) or isinstance(last, function) or last is None:
+            defaults = last if last is not None else False
             sources, target = args[:-1], args[-1]
         else:
             sources, target, defaults = args, last, False
@@ -803,7 +852,8 @@ def smart_copy(*args, **kwargs):
             else:
                 items = dir(source)
             for key in items:
-                if defaults is False and key.startswith('_'):
+                private = isinstance(key, str_base) and key.startswith('_')
+                if defaults is False and private:
                     copy = False
                 elif callable(defaults):
                     copy = defaults(key, source=source)
@@ -867,7 +917,7 @@ metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking
        >>> Spam.__bases__ == (dict, )
        True
 
-    .. note::
+    .. warning::
 
        You should always place your metaclass declaration *first* in the list
        of bases. Doing otherwise triggers *twice* the metaclass' constructors
@@ -875,7 +925,7 @@ metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking
 
        If your metaclass has some non-idempotent side-effect (such as
        registration of classes), then this would lead to unwanted double
-       registration of the class.
+       registration of the class::
 
           >>> class BaseMeta(type):
           ...     classes = []
@@ -924,11 +974,106 @@ def register_with(abc):
         >>> @register_with(Mapping)
         ... class Foobar(object):
         ...     pass
+
         >>> issubclass(Foobar, Mapping)
-            True
+        True
 
     '''
     def inner(subclass):
         abc.register(subclass)
         return subclass
     return inner
+
+
+def traverse(obj, path, default=Unset, sep='.', getter=None):
+    '''Traverses an object's hierarchy by performing an attribute get at each
+    level.
+
+    This helps getting an attribute that is buried down several levels
+    deep. For example::
+
+       traverse(request, 'session.somevalue')
+
+    If `default` is not provided and any component in the path is not found
+    an AttributeError exceptions is raised.
+
+    You may provide `sep` to change the default separator.
+
+    You may provide a custom `getter`. By default, does an
+    :func:`smart_getter` over the objects. If provided `getter` should have
+    the signature of `getattr`.
+
+    '''
+    notfound = object()
+    current = obj
+    if not getter:
+        getter = lambda o, a, default=None: smart_getter(o)(a, default)
+    attrs = path.split(sep)
+    while current is not notfound and attrs:
+        attr = attrs.pop(0)
+        current = getter(current, attr, notfound)
+    if current is notfound:
+        if default is Unset:
+            raise AttributeError(attr)
+        else:
+            return default
+    else:
+        return current
+
+
+def dict_merge(*dicts, **others):
+    '''Merges several dicts into a single one.
+
+    Merging is similar to updating a dict, but if values are non-scalars they
+    are also merged is this way:
+
+    - Any two :class:`sequences <collection.Sequence>` or :class:`sets
+      <collections.Set>` are joined together.
+
+    - Any two mappings are recursively merged.
+
+    - Other types are just replaced like in :func:`update`.
+
+    If for a single key two values of incompatible types are found, raise a
+    TypeError.  If the values for a single key are compatible but different
+    (i.e a list an a tuple) the resultant type will be the type of the first
+    apparition of the key, unless for mappings which are always cast to dicts.
+
+    No matter the types of `dicts` the result is always a dict.
+
+    Without arguments, return the empty dict.
+
+    '''
+    from collections import Mapping, Sequence, Set
+    from xoutil.compat import iteritems_
+    from xoutil.objects import get_first_of
+    from xoutil.types import are_instances, no_instances
+    if others:
+        dicts = dicts + (others, )
+    dicts = list(dicts)
+    result = {}
+    collections = (Set, Sequence)
+    while dicts:
+        current = dicts.pop(0)
+        for key, val in iteritems_(current):
+            if isinstance(val, Mapping):
+                val = {key: val[key] for key in val}
+            value = result.setdefault(key, val)
+            if value is not val:
+                if are_instances(value, val, collections):
+                    join = get_first_of((value, ), '__add__', '__or__')
+                    if join:
+                        constructor = type(value)
+                        value = join(constructor(val))
+                    else:
+                        raise ValueError("Invalid value for key '%s'"
+                                         % key)
+                elif are_instances(value, val, Mapping):
+                    value = dict_merge(value, val)
+                elif no_instances(value, val, (Set, Sequence, Mapping)):
+                    value = val
+                else:
+                    raise TypeError("Found incompatible values for key '%s'"
+                                    % key)
+                result[key] = value
+    return result

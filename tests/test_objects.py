@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # tests.test_objects
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
@@ -32,6 +32,11 @@ def test_smart_copy():
     source = new(a=1, b=2, c=4, _d=5)
     target = {}
     smart_copy(source, target, False)
+    assert target == dict(a=1, b=2, c=4)
+
+    source = new(a=1, b=2, c=4, _d=5)
+    target = {}
+    smart_copy(source, target, None)
     assert target == dict(a=1, b=2, c=4)
 
     target = {}
@@ -181,3 +186,127 @@ def test_new_style_metaclass_registration():
 
       # Nevertheless the bases are ok.
     assert Spam.__bases__ == (Base, )
+
+
+def test_lazy():
+    from xoutil.objects import lazy, setdefaultattr
+    class new(object): pass
+    inst = new()
+    setter = lambda a: -a
+    setdefaultattr(inst, 'c', lazy(setter, 10))
+    assert inst.c == -10
+    setdefaultattr(inst, 'c', lazy(setter, 20))
+    assert inst.c == -10
+
+
+# Easly creates a hierarchy of objects
+class new(object):
+    def __init__(self, **kwargs):
+        attrs = {}
+        children = {}
+        for attr, value in kwargs.items():
+            if '.' in attr:
+                name, childattr = attr.split('.', 1)
+                child = children.setdefault(name, {})
+                child[childattr] = value
+            else:
+                attrs[attr] = value
+        self.__dict__.update(attrs)
+        assert set(attrs.keys()) & set(children.keys()) == set()
+        for child, vals in children.items():
+            setattr(self, child, new(**vals))
+
+
+def test_traversing():
+    from xoutil.objects import traverse
+    obj = new(**{'a': 1, 'b.c.d': {'x': 2}, 'b.c.x': 3})
+    assert traverse(obj, 'a') == 1
+    assert traverse(obj, 'b.c.d.x') == 2
+    assert traverse(obj, 'b.c.x') == 3
+    with pytest.raises(AttributeError):
+        traverse(obj, 'a.v')
+    with pytest.raises(AttributeError):
+        traverse(obj, 'a.b.c.d.y')
+
+
+def test_dict_merge_base_cases():
+    from xoutil.objects import dict_merge
+    base = {'a': 'a', 'd': {'attr1': 2}}
+    assert dict_merge() == {}
+    assert dict_merge(base) == base
+    assert dict_merge(**base) == base
+
+
+def test_dict_merge_simple_cases():
+    from xoutil.objects import dict_merge
+    first = {'a': {'attr1': 1}, 'b': {'attr1': 1}, 'c': 194, 'shared': 1}
+    second = {'a': {'attr2': 2}, 'b': {'attr2': 2}, 'd': 195, 'shared': 2}
+    expected = {'a': {'attr1': 1, 'attr2': 2},
+                'b': {'attr1': 1, 'attr2': 2},
+                'c': 194,
+                'd': 195,
+                'shared': 2}
+    assert dict_merge(first, second) == expected
+    assert dict_merge(first, **second) == expected
+    assert dict_merge(second, first) == dict(expected, shared=1)
+    assert dict_merge(second, **first) == dict(expected, shared=1)
+
+
+def test_dict_merge_compatible_cases():
+    from xoutil.objects import dict_merge
+    first = {192: ['attr1', 1], 193: {'attr1', 1}}
+    second = {192: ('attr2', 2), 193: ['attr2', 2]}
+    assert dict_merge(first, second) == {192: ['attr1', 1, 'attr2', 2],
+                                         193: {'attr1', 1, 'attr2', 2}}
+    result = dict_merge(second, first)
+    assert result[192] == ('attr2', 2, 'attr1', 1)
+    key_193 = result[193]
+    assert key_193[:2] == ['attr2', 2]
+    # Since order of set's members is not defined we can't test order, we can
+    # only know that they'll be in the last two positions.
+    assert key_193.index('attr1') in (2, 3)
+    assert key_193.index(1) in (2, 3)
+
+
+def test_dict_merge_errors():
+    from xoutil.objects import dict_merge
+    first = {192: 192}
+    second = {192: [192]}
+    with pytest.raises(TypeError):
+        dict_merge(second, first)
+    with pytest.raises(TypeError):
+        dict_merge(first, second)
+
+
+def test_get_first_of():
+    from xoutil.objects import get_first_of
+    somedict = {"foo": "bar", "spam": "eggs"}
+    assert get_first_of(somedict, "no", "foo", "spam") == 'bar'
+
+    somedict = {"foo": "bar", "spam": "eggs"}
+    assert get_first_of(somedict, "eggs") is None
+
+    class Someobject(object): pass
+    inst = Someobject()
+    inst.foo = 'bar'
+    inst.eggs = 'spam'
+    assert get_first_of(inst, 'no', 'eggs', 'foo') == 'spam'
+    assert get_first_of(inst, 'invalid') is None
+
+    somedict = {"foo": "bar", "spam": "eggs"}
+    class Someobject(object): pass
+    inst = Someobject()
+    inst.foo = 'bar2'
+    inst.eggs = 'spam'
+    assert get_first_of((somedict, inst), 'eggs') == 'spam'
+    assert get_first_of((somedict, inst), 'foo') == 'bar'
+    assert get_first_of((inst, somedict), 'foo') == 'bar2'
+    assert get_first_of((inst, somedict), 'foobar') is None
+
+    none = object()
+    assert get_first_of((inst, somedict), 'foobar', default=none) is none
+    assert get_first_of(somedict, 'foo', 'spam', pred=lambda v: len(v) > 3) == 'eggs'
+    assert get_first_of(somedict, 'foo', 'spam', pred=lambda v: len(v) > 4) is None
+
+    with pytest.raises(TypeError):
+        get_first_of(None, anything=1)

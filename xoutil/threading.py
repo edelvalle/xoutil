@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.threading
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
@@ -27,7 +27,7 @@ __date__ = "Tue May 28 11:27:04 2013"
 
 def async_call(func, args=None, kwargs=None, callback=None, onerror=None):
     '''Executes a function `func` with the given positional and keyword
-    arguments asynchronuously.
+    arguments asynchronously.
 
     If `callback` is provided, it is called with a single positional argument:
     the result of calling `func(*args, **kwargs)`.
@@ -38,7 +38,7 @@ def async_call(func, args=None, kwargs=None, callback=None, onerror=None):
     :returns: An event object that gets signalled when the function ends its
               execution whether normally or with an error.
 
-    :rtype: :class:`py:threading.Event`
+    :rtype: :class:`threading.Event`
 
     '''
     event = threading.Event()

@@ -2,7 +2,7 @@
 #----------------------------------------------------------------------
 # xoutil.data
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # Copyright (c) 2009-2012 Medardo Rodríguez
 # All rights reserved.
 #
@@ -15,10 +15,8 @@
 
 '''Some useful Data Structures and data-related algorithms and functions.
 
-.. warning::
-
-   **This module is completely deprecated since 1.4.0**. Most of its contents
-   are already deprecated.
+.. deprecated:: 1.4.0 This module is completely deprecated since 1.4.0. Most of
+   its contents are already deprecated.
 
 '''
 
@@ -31,21 +29,6 @@ from __future__ import (division as _py3_division,
 import xoutil.collections
 from xoutil.deprecation import deprecated
 
-@deprecated('xoutil.objects.smart_copy')
-def smart_copy(source, target, full=False):
-    '''Copies attributes (or keys) from `source` to `target`.
-
-    .. warning::
-
-       *Deprecated since 1.4.0*. Use :func:`xoutil.objects.smart_copy`. Using
-       the new function this one is roughly equivalent to::
-
-           from xoutil.objects import smart_copy
-           smart_copy(source, target, defaults=full)
-
-    '''
-    from xoutil.objects import smart_copy as _smart_copy
-    return _smart_copy(source, target, defaults=full)
 
 def adapt_exception(value, **kwargs):
     '''Like PEP-246, Object Adaptation, with ``adapt(value, Exception,
@@ -66,26 +49,3 @@ def adapt_exception(value, **kwargs):
         return ecls(*args)
     else:
         return None
-
-
-@deprecated(xoutil.collections.SmartDict)
-class SmartDict(xoutil.collections.SmartDict):
-    '''A smart dict that extends the `update` method to accept several args.
-
-    .. warning::
-
-       Deprecated since 1.4.0. Moved to
-       :class:`xoutil.collections.SmartDict`.
-
-    '''
-
-@deprecated(xoutil.collections.OrderedSmartDict)
-class SortedSmartDict(xoutil.collections.OrderedSmartDict):
-    '''An ordered SmartDict.
-
-    .. warning::
-
-       Deprecated since 1.4.0. Moved to
-       :class:`xoutil.collections.OrderedSmartDict`.
-
-    '''

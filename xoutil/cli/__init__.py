@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.cli
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement
+# Copyright (c) 2013, 2014 Merchise Autrement
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
@@ -144,9 +144,9 @@ class Command(metaclass(ABCMeta)):
 
         For example::
 
-            >>> Command.set_default_command('server')
-            >>> Server.set_default_command()
-            >>> Command.set_default_command(Server)
+            >>> Command.set_default_command('server')  # doctest: +SKIP
+            >>> Server.set_default_command()           # doctest: +SKIP
+            >>> Command.set_default_command(Server)    # doctest: +SKIP
 
         '''
         if cls is Command:

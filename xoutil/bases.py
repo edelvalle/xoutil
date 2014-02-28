@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.bases
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
@@ -23,7 +23,7 @@ del strs
 
 
 __author__ = "Manuel Vázquez Acosta <mva.led@gmail.com>"
-__date__   = "Mon Mar 25 14:38:12 2013"
+__date__ = "Mon Mar 25 14:38:12 2013"
 
 
 class BaseConvertor(object):

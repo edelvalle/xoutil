@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.test_context
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under
@@ -34,7 +34,6 @@ class TestContext(unittest.TestCase):
                 self.assertEquals(False, bool(context['context-2']))
             self.assertIsNot(None, context['CONTEXT-1'])
         self.assertEquals(False, bool(context['CONTEXT-1']))
-
 
     def test_with_objects(self):
         CONTEXT1 = object()

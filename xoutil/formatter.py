@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.formatter
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement and Contributors
+# Copyright (c) 2013, 2014 Merchise Autrement and Contributors
 # Copyright (c) 2009-2012 Medardo Rodríguez
 # All rights reserved.
 #
@@ -76,7 +76,6 @@ class InvalidFactory(object):
         msg = ('Invalid place-holder in string: '
                'line "%d", col "%d"') % (line, col)
         raise ValueError(msg)
-
 
 
 class _TemplateClass(type):

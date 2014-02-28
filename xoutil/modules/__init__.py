@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------
 # xoutil.modules
 #----------------------------------------------------------------------
-# Copyright (c) 2013 Merchise Autrement
+# Copyright (c) 2013, 2014 Merchise Autrement
 # All rights reserved.
 #
 # This is free software; you can redistribute it and/or modify it under the
@@ -21,7 +21,6 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _py3_abs_import)
 
-import sys
 from types import ModuleType
 
 __docstring_format__ = 'rst'
@@ -34,7 +33,7 @@ def force_module(ref=None):
     If `ref` is not specified (or integer) calling module is assumed looking
     in the stack.
 
-    .. impl-detail::
+    .. note:: Implementation detail
 
        Function used to inspect the stack is not guaranteed to exist in all
        implementations of Python.
@@ -46,6 +45,7 @@ def force_module(ref=None):
         if ref is None:
             ref = 1
         if isinstance(ref, int):
+            import sys
             ref = sys._getframe(ref).f_globals['__name__']
         if not isinstance(ref, str):
             if isinstance(ref, bytes):
@@ -55,7 +55,7 @@ def force_module(ref=None):
                     ref = ref.encode()  # Python 2.x
                 except:
                     msg = ("invalid type '%s' for module name '%s'" %
-                            (type(ref), ref))
+                           (type(ref), ref))
                     raise TypeError(msg)
         return __import__(ref, fromlist=[ref], level=0)
 
@@ -79,7 +79,7 @@ def copy_members(source=None, target=None):
     :returns: Source module.
     :rtype: `ModuleType`
 
-    .. impl-detail::
+    .. warning:: Implementation detail
 
        Function used to inspect the stack is not guaranteed to exist in all
        implementations of Python.
@@ -98,44 +98,63 @@ def copy_members(source=None, target=None):
     return source
 
 
-_CUSTOM_MODULE_TYPE_NAME = str('CustomModule')
+class _CustomModuleBase(ModuleType):
+    pass
 
 
-# TODO: [manu] "kwargs" never is used, so maybe the metaclass is not needed
-#       Also, if this parameter will be used, then you need to update
-#       CustomModule even after created the first time.
-#       Also, returning if created or not, looks as unnecessary too.
-def customize(module, **kwargs):
+def customize(module, custom_attrs=None, meta=None):
     '''Replaces a `module` by a custom one.
 
     Injects all kwargs into the newly created module's class. This allows to
-    have module into which we may have properties or other type of descriptors.
+    have module into which we may have properties or other type of
+    descriptors.
 
-    :returns: A tuple of ``(module, customized, class)`` with the module in the
-              first place, `customized` will be True only if the module was
-              created (i.e :func:`customize` is idempotent), and the third item
-              will be the class of the module (the first item).
+    :param module: The module object to customize.
+
+    :param custom_attrs: A dictionary of custom attributes that should be
+        injected in the customized module.
+
+        .. versionadded:: 1.4.2 Changes the API, no longer uses the
+                          ``**kwargs`` idiom for custom attributes.
+
+    :param meta: The metaclass of the module type. This should be a subclass
+                 of `type`. We will actually subclass this metaclass to
+                 properly inject `custom_attrs` in our own internal
+                 metaclass.
+
+    :returns: A tuple of ``(module, customized, class)`` with the module in
+              the first place, `customized` will be True only if the module
+              was created (i.e :func:`customize` is idempotent), and the
+              third item will be the class of the module (the first item).
 
     '''
-    if type(module).__name__ != _CUSTOM_MODULE_TYPE_NAME:
+    if not isinstance(module, _CustomModuleBase):
+        import sys
+        from xoutil.objects import metaclass
+        meta_base = meta if meta else type
 
-        class CustomModule(ModuleType):
+        class CustomModuleType(meta_base):
+            def __new__(cls, name, bases, attrs):
+                if custom_attrs:
+                    attrs.update(custom_attrs)
+                return super(CustomModuleType, cls).__new__(cls, name, bases,
+                                                            attrs)
+
+        class CustomModule(metaclass(CustomModuleType), _CustomModuleBase):
             def __getattr__(self, attr):
                 self.__dict__[attr] = result = getattr(module, attr)
                 return result
 
             def __dir__(self):
-                return dir(module)
-
-        assert CustomModule.__name__ == _CUSTOM_MODULE_TYPE_NAME
+                res = set(dir(module))
+                if custom_attrs:
+                    res |= set(custom_attrs.keys())
+                return list(res)
 
         sys.modules[module.__name__] = result = CustomModule(module.__name__)
-        result = (result, True, CustomModule)
+        return result, True, CustomModule
     else:
-        result = (module, False, type(module))
-    for attr in kwargs:
-        setattr(result[2], attr, kwargs[attr])
-    return result
+        return module, False, type(module)
 
 
 def modulemethod(func):
@@ -145,6 +164,7 @@ def modulemethod(func):
     with the module object.
 
     '''
+    import sys
     from functools import wraps
     self, _created, cls = customize(sys.modules[func.__module__])
     @wraps(func)
@@ -161,6 +181,7 @@ def moduleproperty(getter, setter=None, deleter=None, doc=None):
     module, and the property is injected to the custom module's class.
 
     '''
+    import sys
     module = sys.modules[getter.__module__]
     module, _created, cls = customize(module)
     class prop(property):
@@ -177,3 +198,26 @@ def moduleproperty(getter, setter=None, deleter=None, doc=None):
     result = prop(getter, setter, deleter, doc)
     setattr(cls, getter.__name__, result)
     return result
+
+
+def get_module_path(module):
+    '''Gets the absolute path of a `module`.
+
+    :param module: Either module object or a (dotted) string for the module.
+
+    :returns: The path of the module.
+
+    If the module is a package, returns the directory path (not the path to the
+    ``__init__``).
+
+    If `module` is a string and it's not absolute, raises a TypeError.
+
+    '''
+    from importlib import import_module
+    from xoutil.fs.path import normalize_path
+    from xoutil.compat import str_base
+    mod = import_module(module) if isinstance(module, str_base) else module
+    # The __path__ only exists for packages and does not include the
+    # __init__.py
+    path = mod.__path__[0] if hasattr(mod, '__path__') else mod.__file__
+    return normalize_path(path)

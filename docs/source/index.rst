@@ -1,3 +1,4 @@
+
 .. xoutil documentation master file, created by
    sphinx-quickstart on Fri Jun 15 14:31:00 2012.
    You can adapt this file completely to your liking, but it should at least
@@ -13,13 +14,14 @@ Welcome to xoutil's documentation!
 What's new in this version
 --------------------------
 
-.. include:: history/changes-1.4.1.rst
+.. include:: history/_changes-1.5.2.rst
 
-and in since 1.4.0
+
+And from version 1.5.0
 ~~~~~~~~~~~~~~~~~~~~~~
-.. include:: history/changes-1.4.0.rst
 
-
+.. include:: history/_changes-1.5.1.rst
+.. include:: history/_changes-1.5.0.rst
 
 
 Contents:
@@ -29,6 +31,7 @@ Contents:
    :maxdepth: 2
    :glob:
 
+   xoutil/toplevel
    xoutil/*
    xoutil/**
    others
