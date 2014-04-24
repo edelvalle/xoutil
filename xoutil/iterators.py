@@ -49,8 +49,9 @@ def flatten(sequence, is_scalar=is_scalar, depth=None):
     '''Flattens out a sequence. It takes care of everything deemed a collection
     (i.e, not a scalar according to the callabled passed in `is_scalar`)::
 
-        >>> from xoutil.compat import range_, xrange_
-        >>> tuple(flatten((1, range_(2, 5), xrange_(5, 10))))
+        >>> from xoutil.six.moves import range
+        >>> range_ = lambda *a: list(range(*a))
+        >>> tuple(flatten((1, range_(2, 5), range(5, 10))))
         (1, 2, 3, 4, 5, 6, 7, 8, 9)
 
     If `depth` is None the collection is flattened recursiverly until the
@@ -58,15 +59,13 @@ def flatten(sequence, is_scalar=is_scalar, depth=None):
     flattened up to that level. `depth=0` means not to flatten. Nested
     iterators are not "exploded" if under the stated `depth`::
 
-        >>> from xoutil.compat import xrange_, range_
-
         # In the following doctest we use ``...range(...X)`` because the string
         # repr of range differs in Py2 and Py3k.
 
-        >>> tuple(flatten((range_(2), xrange_(2, 4)), depth=0))  # doctest: +ELLIPSIS
+        >>> tuple(flatten((range_(2), range(2, 4)), depth=0))  # doctest: +ELLIPSIS
         ([0, 1], ...range(2, 4))
 
-        >>> tuple(flatten((xrange_(2), range_(2, 4)), depth=0))  # doctest: +ELLIPSIS
+        >>> tuple(flatten((range(2), range_(2, 4)), depth=0))  # doctest: +ELLIPSIS
         (...range(...2), [2, 3])
 
     '''
@@ -105,6 +104,22 @@ def fake_dict_iteritems(source):
     warnings.warn('fake_dict_iteritems is in risk for deprecation')
     for key in source.keys():
         yield key, source[key]
+
+
+def delete_duplicates(seq):
+    '''Remove all duplicate elements from SEQ (destructively).
+
+    It will function with lists, tuples and strings.
+
+    '''
+    i, done = 0, set()
+    while i < len(seq):
+        if seq[i] not in done:
+            done.add(seq[i])
+            i += 1
+        else:
+            seq = seq[:i] + seq[i+1:]
+    return seq
 
 
 def slides(iterable, width=2, fill=None):
@@ -227,4 +242,4 @@ def first_n(iterable, n=1, fill=Unset):
 
 
 # Compatible zip and map
-from xoutil.compat import zip, map, zip_longest
+from xoutil.six.moves import zip, map, zip_longest

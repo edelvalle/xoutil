@@ -50,9 +50,12 @@ class TestCollections(unittest.TestCase):
 def test_stacked_dict():
     from xoutil.collections import StackedDict
     sd = StackedDict(a='level-0')
+    assert sd.peek() == dict(a='level-0')
     sd.push(a=1, b=2, c=10)
     assert sd.level == 1
+    assert sd.peek() == dict(a=1, b=2, c=10)
     sd.push(b=4, c=5)
+    assert sd.peek() == dict(b=4, c=5)
     assert sd.level == 2
     assert sd['b'] == 4
     assert sd['a'] == 1
@@ -82,7 +85,7 @@ def test_stacked_dict():
 
 
 # Backported from Python 3.3.0 standard library
-from xoutil.compat import py3k
+from xoutil.six import PY3
 from xoutil.collections import ChainMap, Counter, OrderedDict, Mapping
 from xoutil.collections import MutableMapping
 import copy, pickle, inspect
@@ -112,7 +115,7 @@ class TestChainMap(unittest.TestCase):
             self.assertIn(key, d)
         for k, v in dict(a=1, b=2, c=30, z=100).items():              # check get
             self.assertEqual(d.get(k, 100), v)
-        if not py3k:
+        if not PY3:
             self.assertIn(repr(d), [                                      # check repr
                 type(d).__name__ + "({u'c': 30}, {u'a': 1, u'b': 2})",
                 type(d).__name__ + "({u'c': 30}, {u'b': 2, u'a': 1})"
@@ -181,6 +184,39 @@ class TestChainMap(unittest.TestCase):
         self.assertEqual(dict(d), dict(a=1, b=2, c=30))
         self.assertEqual(dict(d.items()), dict(a=1, b=2, c=30))
 
+    def test_new_child(self):
+        'Tests for changes for issue #16613.'
+        c = ChainMap()
+        c['a'] = 1
+        c['b'] = 2
+        m = {'b':20, 'c': 30}
+        d = c.new_child(m)
+        self.assertEqual(d.maps, [{'b':20, 'c':30}, {'a':1, 'b':2}])  # check internal state
+        self.assertIs(m, d.maps[0])
+
+        # Use a different map than a dict
+        class lowerdict(dict):
+            def __getitem__(self, key):
+                if isinstance(key, str):
+                    key = key.lower()
+                return dict.__getitem__(self, key)
+            def __contains__(self, key):
+                if isinstance(key, str):
+                    key = key.lower()
+                return dict.__contains__(self, key)
+
+        c = ChainMap()
+        c['a'] = 1
+        c['b'] = 2
+        m = lowerdict(b=20, c=30)
+        d = c.new_child(m)
+        self.assertIs(m, d.maps[0])
+        for key in 'abc':                                  # check contains
+            self.assertIn(key, d)
+        for k, v in dict(a=1, B=20, C=30, z=100).items():  # check get
+            self.assertEqual(d.get(k, 100), v)
+
+
 
 class TestCounter(unittest.TestCase):
 
@@ -188,8 +224,8 @@ class TestCounter(unittest.TestCase):
         c = Counter('abcaba')
         self.assertEqual(c, Counter({'a':3 , 'b': 2, 'c': 1}))
         self.assertEqual(c, Counter(a=3, b=2, c=1))
-        self.assertIsInstance(c, dict)
-        self.assertIsInstance(c, Mapping)
+        self.assert_(isinstance(c, dict))
+        self.assert_(isinstance(c, Mapping))
         self.assertTrue(issubclass(Counter, dict))
         self.assertTrue(issubclass(Counter, Mapping))
         self.assertEqual(len(c), 3)
@@ -206,7 +242,7 @@ class TestCounter(unittest.TestCase):
         self.assertEqual(c.get('b', 10), 2)
         self.assertEqual(c.get('z', 10), 10)
         self.assertEqual(c, dict(a=3, b=2, c=1))
-        if not py3k:
+        if not PY3:
             self.assertEqual(repr(c), "Counter({u'a': 3, u'b': 2, u'c': 1})")
         else:
             self.assertEqual(repr(c), "Counter({'a': 3, 'b': 2, 'c': 1})")
@@ -451,7 +487,7 @@ class TestOrderedDict(unittest.TestCase):
             [('a', 1), ('b', 2), ('c', 3), ('d', 4), ('e', 5), ('f', 6), ('g', 7)])
 
     def test_abc(self):
-        self.assertIsInstance(OrderedDict(), MutableMapping)
+        self.assert_(isinstance(OrderedDict(), MutableMapping))
         self.assertTrue(issubclass(OrderedDict, MutableMapping))
 
     def test_clear(self):
@@ -573,16 +609,23 @@ class TestOrderedDict(unittest.TestCase):
         self.assertTrue(all(type(pair)==list for pair in od.__reduce__()[1]))
 
     def test_reduce_not_too_fat(self):
+        import sys
         # do not save instance dictionary if not needed
         pairs = [('c', 1), ('b', 2), ('a', 3), ('d', 4), ('e', 5), ('f', 6)]
         od = OrderedDict(pairs)
-        self.assertEqual(len(od.__reduce__()), 2)
+        if sys.version_info >= (3, 4):
+            self.assertIsNone(od.__reduce__()[2])
+        else:
+            self.assertEqual(len(od.__reduce__()), 2)
         od.x = 10
-        self.assertEqual(len(od.__reduce__()), 3)
+        if sys.version_info >= (3, 4):
+            self.assertIsNotNone(od.__reduce__()[2])
+        else:
+            self.assertEqual(len(od.__reduce__()), 3)
 
     def test_repr(self):
         od = OrderedDict([('c', 1), ('b', 2), ('a', 3)])
-        if not py3k:
+        if not PY3:
             self.assertEqual(
                 repr(od),
                 "OrderedDict([(u'c', 1), (u'b', 2), (u'a', 3)])")
@@ -597,7 +640,7 @@ class TestOrderedDict(unittest.TestCase):
         # See issue #9826
         od = OrderedDict.fromkeys('abc')
         od['x'] = od
-        if not py3k:
+        if not PY3:
             self.assertEqual(
                 repr(od),
                 "OrderedDict([(u'a', None), (u'b', None), (u'c', None), (u'x', ...)])")
@@ -662,6 +705,24 @@ class TestOrderedDict(unittest.TestCase):
                 raise Exception()
         items = [('a', 1), ('c', 3), ('b', 2)]
         self.assertEqual(list(MyOD(items).items()), items)
+
+
+def test_abcs():
+    from xoutil.collections import Container
+    from xoutil.collections import Iterable
+    from xoutil.collections import Iterator
+    from xoutil.collections import Sized
+    from xoutil.collections import Callable
+    from xoutil.collections import Sequence
+    from xoutil.collections import MutableSequence
+    from xoutil.collections import Set
+    from xoutil.collections import MutableSet
+    from xoutil.collections import Mapping
+    from xoutil.collections import MutableMapping
+    from xoutil.collections import MappingView
+    from xoutil.collections import ItemsView
+    from xoutil.collections import KeysView
+    from xoutil.collections import ValuesView
 
 
 if __name__ == "__main__":

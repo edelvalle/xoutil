@@ -34,9 +34,13 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _absolute_import)
 
-
+import sys
 from xoutil.modules import copy_members as _copy_python_module_members
 _pm = _copy_python_module_members()
+
+if sys.version_info >= (3, 3):
+    _copy_python_module_members('collections.abc')
+del sys
 
 namedtuple = _pm.namedtuple
 MutableMapping = _pm.MutableMapping
@@ -45,9 +49,13 @@ Mapping = _pm.Mapping
 del _pm, _copy_python_module_members
 
 
-from xoutil.compat import defaultdict as _defaultdict
-from xoutil.compat import py33 as _py33
+from collections import defaultdict as _defaultdict
 from xoutil.names import strlist as slist
+
+import sys
+_py33 = sys.version_info >= (3, 3, 0)
+_py34 = sys.version_info >= (3, 4, 0)
+del sys
 
 
 class defaultdict(_defaultdict):
@@ -344,6 +352,23 @@ class StackedDict(MutableMapping, OpenDictMixin, SmartDictMixin):
         else:
             raise TypeError('Cannot pop from StackedDict without any levels')
 
+    def peek(self):
+        '''Peeks the top level of the stack.
+
+        Returns a copy of the top-most level without any of the keys from
+        lower levels.
+
+        Example::
+
+           >>> sdict = StackedDict(a=1, b=2)
+           >>> sdict.push(c=3)  # it returns the level...
+           1
+           >>> sdict.peek()
+           {'c': 3}
+
+        '''
+        return dict(self.__stack.maps[0])
+
     def __str__(self):
         # TODO: Optimize
         return str(dict(self))
@@ -365,27 +390,6 @@ class StackedDict(MutableMapping, OpenDictMixin, SmartDictMixin):
 
     def __delitem__(self, key):
         del self.__stack[key]
-
-class OrderedSmartDict(SmartDictMixin, OrderedDict):
-    '''A combination of the the OrderedDict with the
-    :class:`SmartDictMixin`.
-
-    .. warning:: Initializing with kwargs does not ensure any initial ordering,
-                 since Python's keyword dict is not ordered. Use a list/tuple
-                 of pairs instead.
-
-    '''
-    def __init__(self, *args, **kwds):
-        '''Initialize an ordered dictionary.
-
-        The signature is the same as regular dictionaries, but keyword
-        arguments are not recommended because their insertion order is
-        arbitrary.
-
-        '''
-        super(OrderedSmartDict, self).__init__()
-        self.update(*args, **kwds)
-
 
 if not _py33:
     # From this point below: Copyright (c) 2001-2013, Python Software
@@ -622,6 +626,7 @@ if not _py33:
             return dict.__eq__(self, other)
 
 
+if not _py34:
     class ChainMap(MutableMapping):
         '''A ChainMap groups multiple dicts (or other mappings) together
         to create a single, updateable view.
@@ -685,9 +690,15 @@ if not _py33:
 
         __copy__ = copy
 
-        def new_child(self):
-            'New ChainMap with a new dict followed by all previous maps.'
-            return self.__class__({}, *self.maps)
+        def new_child(self, m=None):
+            '''New ChainMap with a new map followed by all previous maps.
+
+            If no map is provided, an empty dict is used.
+
+            '''
+            if m is None:
+                m = {}
+            return self.__class__(m, *self.maps)
 
         @property
         def parents(self):
@@ -728,6 +739,7 @@ if not _py33:
             self.maps[0].clear()
 
 
+if not _py33:
     class UserDict(MutableMapping):
         # Start by filling-out the abstract methods
         def __init__(self, dict=None, **kwargs):
@@ -1340,5 +1352,28 @@ if not _py33:
                     self[elem] = other_count
             return self._keep_positive()
 
+### ;; end of Python 3.3 backport
+
+
+class OrderedSmartDict(SmartDictMixin, OrderedDict):
+    '''A combination of the the OrderedDict with the
+    :class:`SmartDictMixin`.
+
+    .. warning:: Initializing with kwargs does not ensure any initial ordering,
+                 since Python's keyword dict is not ordered. Use a list/tuple
+                 of pairs instead.
+
+    '''
+    def __init__(self, *args, **kwds):
+        '''Initialize an ordered dictionary.
+
+        The signature is the same as regular dictionaries, but keyword
+        arguments are not recommended because their insertion order is
+        arbitrary.
+
+        '''
+        super(OrderedSmartDict, self).__init__()
+        self.update(*args, **kwds)
+
 # get rid of unused global variables
-del slist
+del slist, _py33, _py34

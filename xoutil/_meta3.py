@@ -20,19 +20,24 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _py3_abs_imports)
 
-from xoutil.compat import py3k
-assert py3k, 'This module should be loaded in Py3k only'
-
-__author__ = "Manuel Vázquez Acosta <mva.led@gmail.com>"
-__date__ = "Mon Apr 29 15:34:11 2013"
+from xoutil.six import PY3
+assert PY3, 'This module should be loaded in Py3k only'
 
 
-def metaclass(meta):
+def metaclass(meta, **kwargs):
     class base:
         pass
 
     class inner_meta(meta.__base__):
-        def __new__(cls, name, bases, attrs):
+        @classmethod
+        def __prepare__(cls, name, bases, **kwargs):
+            prepare = getattr(meta, '__prepare__', None)
+            if prepare:
+                return prepare(name, bases, **kwargs)
+            else:
+                return dict()
+
+        def __new__(cls, name, bases, attrs, **kw):
             if name != '__inner__':
                 bases = tuple(b for b in bases if not issubclass(b, base))
                 if not bases:
@@ -41,12 +46,9 @@ def metaclass(meta):
             else:
                 return type.__new__(cls, name, bases, attrs)
 
-        def __init__(self, name, bases, attrs):
+        def __init__(self, name, bases, attrs, **kw):
             pass
 
-    # Hide this stuff from Python 2.7 compiler so several static analysis tools
-    # (like pylint and other) don't complain about a SyntaxError.
-    eval(compile('class __inner__(base, metaclass=inner_meta):pass',
-                 __file__, 'exec'))
-
-    return locals()['__inner__']
+    from xoutil.types import new_class
+    kwds = dict(kwargs, metaclass=inner_meta)
+    return new_class('__inner__', (base, ), kwds=kwds)

@@ -43,9 +43,10 @@ from __future__ import (division as _py3_division,
 from re import compile as _regex_compile
 
 from xoutil.deprecation import deprecated as _deprecated
-from xoutil.compat import (str_base as _str_base, _unicode,
-                           ext_str_types as _ext_str_types,
-                           py3k as _py3k)
+from xoutil.six import (string_types as _str_base,
+                        text_type as _unicode,
+                        binary_type as _bytes,
+                        PY3 as _py3k)
 
 from xoutil.modules import copy_members as _copy_python_module_members
 _pm = _copy_python_module_members()
@@ -53,10 +54,6 @@ _pm = _copy_python_module_members()
 Formatter = _pm.Formatter     # Redundant but needed to avoid IDE errors
 
 del _copy_python_module_members, _pm
-
-__docstring_format__ = 'rst'
-__author__ = 'manu'
-
 
 
 def force_encoding(encoding=None):
@@ -167,7 +164,7 @@ def safe_strip(value):
     .. versionadded:: 1.1.3
 
     '''
-    return value.strip() if isinstance(value, _ext_str_types) else value
+    return value.strip() if isinstance(value, (_unicode, _bytes)) else value
 
 
 def cut_prefix(value, prefix):
@@ -258,12 +255,14 @@ def normalize_str(value):
     return sep.join(names)
 
 
-def normalize_slug(value, unwanted_replacement='-'):
+def normalize_slug(value, unwanted_replacement='-', invalid_underscore=False):
     '''Return the string normal form for the :param:`value`
 
     Convert all non-ascii to valid characters using unicode 'NFKC'
     normalization form or replace by :param:`unwanted_replacement` in cases
     where unwanted characters for slugs are found.
+
+    If :param:`invalid_underscore` is True, '_' is not allowed in result.
 
     This function converts any type to a valid string.  For example::
 
@@ -285,12 +284,20 @@ def normalize_slug(value, unwanted_replacement='-'):
         value = safe_decode(value)
     res = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
     res = safe_decode(res.lower())
-    regex = r'[^-_a-z0-9]+'
+    regex = r'[^_a-z0-9]+'
+    if invalid_underscore:
+        regex = regex.replace(r'_', r'')
     if unwanted_replacement:
         regex = r'(%s|%s{2,})' % (regex, unwanted_replacement)
     regex = _regex_compile(regex)
     res = regex.sub(unwanted_replacement, res)
-    return res.strip(unwanted_replacement)
+    if unwanted_replacement:
+        sgl = unwanted_replacement
+        dbl = sgl + sgl
+        res = res.strip(sgl)
+        while dbl in res:
+            res = res.replace(dbl, sgl)
+    return res
 
 
 def strfnumber(number, format_spec='%0.2f'):

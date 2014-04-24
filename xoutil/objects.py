@@ -24,7 +24,7 @@ from __future__ import (division as _py3_division,
                         absolute_import)
 
 from xoutil import Unset
-from xoutil.compat import py3k as _py3k
+from xoutil.six import PY3 as _py3k, callable
 from xoutil.deprecation import deprecated
 
 from xoutil.names import strlist as slist
@@ -50,20 +50,48 @@ _true = lambda *args, **kwargs: True
 _false = lambda *args, **kwargs: False
 
 
-def smart_getter(obj):
+def smart_getter(obj, strict=False):
     '''Returns a smart getter for `obj`.
 
     If obj is Mapping, it returns the ``.get()`` method bound to the object
-    `obj`. Otherwise it returns a partial of `getattr` on `obj` with default
-    set to None.
+    `obj`.  Otherwise it returns a partial of `getattr` on `obj` with default
+    set to None (if `strict` is False).
+
+    :param strict: Set this to True so that the returned getter checks that
+                   keys/attrs exists.  If `strict` is True the getter may
+                   raise a KeyError or an AttributeError.
+
+    .. versionchanged:: 1.5.3 Added the parameter `strict`.
 
     '''
     from collections import Mapping
     from xoutil.types import DictProxyType
     if isinstance(obj, (DictProxyType, Mapping)):
-        return obj.get
+        if not strict:
+            return obj.get
+        else:
+            def _get(key, default=Unset):
+                try:
+                    return obj[key]
+                except KeyError:
+                    if default is Unset:
+                        raise
+                    else:
+                        return default
+            return _get
     else:
-        return lambda attr, default=None: getattr(obj, attr, default)
+        if not strict:
+            return lambda attr, default=None: getattr(obj, attr, default)
+        else:
+            def _partial(attr, default=Unset):
+                try:
+                    return getattr(obj, attr)
+                except AttributeError:
+                    if default is Unset:
+                        raise
+                    else:
+                        return default
+            return _partial
 
 
 def smart_getter_and_deleter(obj):
@@ -425,7 +453,7 @@ def iterate_over(source, *keys):
                 yield key, val
 
     def when_collection(source):
-        from xoutil.compat import map
+        from xoutil.six.moves import map
         for generator in map(inner, source):
             for key, val in generator:
                 yield key, val
@@ -568,6 +596,7 @@ def popattr(obj, name, default=None):
 
 get_and_del_attr = deprecated(popattr)(popattr)
 
+
 @deprecated('pop', 'Use dict.pop() with default=None.')
 def get_and_del_key(d, key, default=None):
     '''Looks for a key in the dict `d` and returns its value and removes the
@@ -593,7 +622,7 @@ class lazy(object):
         self.kwargs = kwargs
 
     def __call__(self):
-        from xoutil.compat import callable
+        from xoutil.six import callable
         res = self.value
         if callable(res):
             return res(*self.args, **self.kwargs)
@@ -701,7 +730,7 @@ def copy_class(cls, meta=None, ignores=None, new_attrs=None):
 
     '''
     from xoutil.fs import _get_regex
-    from xoutil.compat import str_base, iteritems_
+    from xoutil.six import string_types as str_base, iteritems as iteritems_
     # TODO: [manu] "xoutil.fs" is more specific module than this one. So ...
     #       isn't correct to depend on it. Migrate part of "_get_regex" to a
     #       module that can be imported logically without problems from both,
@@ -797,7 +826,7 @@ def smart_copy(*args, **kwargs):
 
     '''
     from collections import Mapping, MutableMapping
-    from xoutil.compat import callable, str_base
+    from xoutil.six import callable, string_types as str_base
     from xoutil.types import FunctionType as function
     from xoutil.types import is_collection, Required
     from xoutil.types import DictProxyType
@@ -867,21 +896,28 @@ def smart_copy(*args, **kwargs):
 
 
 def extract_attrs(obj, *names, **kwargs):
-    '''Returns a tuple of the `names` from an object.
+    '''Extracts all `names` from an object.
 
     If `obj` is a Mapping, the names will be search in the keys of the `obj`;
     otherwise the names are considered regular attribute names.
 
-    If `default` is Unset and one attribute is not found an AttributeError (or
-    KeyError) is raised, otherwise the `default` is used instead.
+    If `default` is Unset and any name is not found, an AttributeError is
+    raised, otherwise the `default` is used instead.
+
+    Returns a tuple if there are more that one name, otherwise returns a
+    single value.
 
     .. versionadded:: 1.4.0
 
+    .. versionchanged:: 1.5.3 Each `name` may be a path like in
+       `get_traverser`:func:, but only "." is allowed as separator.
+
     '''
-    # TODO: Delete next:
-    # from xoutil.objects import smart_getter
-    get = smart_getter(obj)
-    return tuple(get(attr, **kwargs) for attr in names)
+    default = kwargs.pop('default', Unset)
+    if kwargs:
+        raise TypeError('Invalid keyword arguments for `extract_attrs`')
+    getter = get_traverser(*names, default=default)
+    return getter(obj)
 
 
 if _py3k:
@@ -894,17 +930,18 @@ else:
 metaclass = __m.metaclass
 
 
-metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking
-    style.
+metaclass.__doc__ = '''Define the metaclass of a class.
 
     .. versionadded:: 1.4.1
+
+    This function allows to define the metaclass of a class equally in Python
+    2 and 3.
 
     Usage::
 
        >>> class Meta(type):
        ...   pass
 
-       # This is the same as the Py3k syntax: class Foobar(metaclass=Meta)
        >>> class Foobar(metaclass(Meta)):
        ...   pass
 
@@ -917,11 +954,52 @@ metaclass.__doc__ = '''Defines the metaclass of a class using a py3k-looking
        >>> Spam.__bases__ == (dict, )
        True
 
+    .. versionadded:: 1.5.5 The `kwargs` keywords arguments with support for
+       ``__prepare__``.
+
+    Metaclasses are allowed to have a ``__prepare__`` classmethod to return
+    the namespace into which the body of the class should be evaluated.  See
+    :pep:`3115`.
+
+    .. warning:: The :pep:`3115` is not possible to implement in Python 2.7.
+
+       Despite our best efforts to have a truly compatible way of creating
+       meta classes in both Python 2.7 and 3.0+, there is an inescapable
+       difference in Python 2.7.  The :pep:`3115` states that ``__prepare__``
+       should be called before evaluating the body of the class.  This is not
+       possible in Python 2.7, since ``__new__`` already receives the
+       attributes collected in the body of the class.  So it's always too late
+       to call ``__prepare__`` at this point and the Python 2.7 interpreter
+       does not call it.
+
+       Our approach for Python 2.7 is calling it inside the ``__new__`` of a
+       "side" metaclass that is used for the base class returned.  This means
+       that ``__prepare__`` is called **only** for classes that use the
+       `metaclass`:func: directly.  In the following hierarchy::
+
+           class Meta(type):
+                @classmethod
+                def __prepare__(cls, name, bases, **kwargs):
+                    from xoutil.collections import OrderedDict
+                    return OrderedDict()
+
+           class Foo(metaclass(Meta)):
+                pass
+
+           class Bar(Foo):
+                pass
+
+       when creating the class ``Bar`` the ``__prepare__()`` class method is
+       not called in Python 2.7!
+
+    .. seealso:: `xoutil.types.prepare_class`:func: and
+       `xoutil.types.new_class`:func:.
+
     .. warning::
 
        You should always place your metaclass declaration *first* in the list
        of bases. Doing otherwise triggers *twice* the metaclass' constructors
-       in Python 2.7.
+       in Python 3.1 or less.
 
        If your metaclass has some non-idempotent side-effect (such as
        registration of classes), then this would lead to unwanted double
@@ -1001,27 +1079,64 @@ def traverse(obj, path, default=Unset, sep='.', getter=None):
 
     You may provide a custom `getter`. By default, does an
     :func:`smart_getter` over the objects. If provided `getter` should have
-    the signature of `getattr`.
+    the signature of `getattr`:func:.
+
+    See `get_traverser`:func: if you need to apply the same path(s) to several
+    objects.  Actually this is equivalent to::
+
+        get_traverser(path, default=default, sep=sep, getter=getter)(obj)
 
     '''
-    notfound = object()
-    current = obj
-    if not getter:
-        getter = lambda o, a, default=None: smart_getter(o)(a, default)
-    attrs = path.split(sep)
-    while current is not notfound and attrs:
-        attr = attrs.pop(0)
-        current = getter(current, attr, notfound)
-    if current is notfound:
-        if default is Unset:
-            raise AttributeError(attr)
-        else:
-            return default
+    _traverser = get_traverser(path, default=default, sep=sep, getter=None)
+    return _traverser(obj)
+
+
+def get_traverser(*paths, **kw):
+    '''Combines the power of `traverse`:func: with the expectations from both
+    `operator.itergetter`:func: and `operator.attrgetter`:func:.
+
+    :param paths: Several paths to extract.
+
+    Keyword arguments has the same meaning as in `traverse`:func:.
+
+    :returns: A function the when invoked with an `object` traverse the object
+              finding each `path`.
+
+    .. versionadded:: 1.5.3
+
+    '''
+    def _traverser(path, default=Unset, sep='.', getter=None):
+        if not getter:
+            getter = lambda o, a, default=None: smart_getter(o)(a, default)
+        def inner(obj):
+            notfound = object()
+            current = obj
+            attrs = path.split(sep)
+            while current is not notfound and attrs:
+                attr = attrs.pop(0)
+                current = getter(current, attr, notfound)
+            if current is notfound:
+                if default is Unset:
+                    raise AttributeError(attr)
+                else:
+                    return default
+            else:
+                return current
+        return inner
+    if len(paths) == 1:
+        result = _traverser(paths[0], **kw)
+    elif len(paths) > 1:
+        _traversers = tuple(_traverser(path, **kw) for path in paths)
+        def _result(obj):
+            return tuple(traverse(obj) for traverse in _traversers)
+        result = _result
     else:
-        return current
+        raise TypeError('"get_traverser" requires at least a path')
+    return result
 
 
 def dict_merge(*dicts, **others):
+
     '''Merges several dicts into a single one.
 
     Merging is similar to updating a dict, but if values are non-scalars they
@@ -1045,7 +1160,7 @@ def dict_merge(*dicts, **others):
 
     '''
     from collections import Mapping, Sequence, Set
-    from xoutil.compat import iteritems_
+    from xoutil.six import iteritems as iteritems_
     from xoutil.objects import get_first_of
     from xoutil.types import are_instances, no_instances
     if others:
