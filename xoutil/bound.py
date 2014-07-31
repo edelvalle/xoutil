@@ -61,10 +61,16 @@ from xoutil.objects import metaclass
 
 class BoundedType(type):
     '''A bounded generator/function.'''
-    pass
+    @classmethod
+    def __prepare__(cls, name, bases, **kwargs):
+        return kwargs
 
 
-class Bounded(metaclass(BoundedType)):
+# TODO: Actually the metaclass of Bounded is the BoundaryCondition.
+# BoundaryCondition.apply takes arguments and returns a subclass of Bounded.
+# Python 3 allows for preparing the namespace where the class is going to be
+# evaluated, Python 2.7 does not.
+class Bounded(object):
     '''The bounded function.
 
     This is result of applying a `boundary definition` to an `unbounded
@@ -149,6 +155,9 @@ class BoundaryCondition(object):
         return self.args or self.defaults or self.varargs or self.varkwargs
 
     def apply(self, args, kwargs):
+        from xoutil.types import new_class
+        from xoutil.objects import metaclass
+
         def execute(pred, unboundedgen, initial):
             try:
                 next(pred)
@@ -176,7 +185,19 @@ class BoundaryCondition(object):
                 pred.close()
                 unboundedgen.close()
 
-        class bounded(Bounded):
+        def class_context(ns):
+            locals().update(ns)
+            assert 'definition' in ns
+            ns.update(locals())
+
+        bounded = new_class(
+            self.name,
+            (Bounded, ),
+            dict(metaclass=BoundedType, definition=self.definition),
+            class_context
+        )
+        class bounded(metaclass(BoundedType, definition=self.definition),
+                      Bounded):
             @classmethod
             def build_pred(boundedcls):
                 return self.build_generator(args, kwargs)
