@@ -208,7 +208,7 @@ Unreleased. Release 1.6.11
 
 .. _github: https://github.com/merchise-autrement/xoutil/
 
-.. TODO: Rename "/merchise-autrement/" by "/merchise/"
+.. TODO: Migrate some stuffs from "/merchise-autrement/" by "/merchise/"
 
 2012-07-06. Release 1.1.1
 ~~~~~~~~~~~~~~~~~~~~~~~~~
