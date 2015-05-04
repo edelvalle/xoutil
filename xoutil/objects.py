@@ -545,7 +545,8 @@ def fulldir(obj):
 
 
 # TODO: Fix signature after removal of attr_filter and value_filter
-def xdir(obj, attr_filter=None, value_filter=None, getter=None, filter=None, _depth=0):
+def xdir(obj, attr_filter=None, value_filter=None, getter=None, filter=None,
+         _depth=0):
     '''Return all ``(attr, value)`` pairs from `obj` that ``attr_filter(attr)``
     and ``value_filter(value)`` are both True.
 
@@ -972,7 +973,8 @@ def copy_class(cls, meta=None, ignores=None, new_attrs=None):
         meta = type(cls)
     if isinstance(ignores, str_base):
         ignores = (ignores, )
-        ignores = tuple((_get_regex(i) if isinstance(i, str_base) else i) for i in ignores)
+        ignores = tuple((_get_regex(i) if isinstance(i, str_base) else i)
+                        for i in ignores)
         ignored = lambda name: any(ignore.match(name) for ignore in ignores)
     else:
         ignored = None
