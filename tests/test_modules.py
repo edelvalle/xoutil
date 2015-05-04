@@ -121,7 +121,7 @@ def test_get_module_path_by_module_string_rel():
     import pytest
     from xoutil.modules import get_module_path
     with pytest.raises(TypeError):
-        assert get_module_path('.iterators') == expected
+        assert get_module_path('.iterators')
 
 
 def test_object_stability():
