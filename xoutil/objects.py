@@ -1014,12 +1014,16 @@ def smart_copy(*args, **kwargs):
 
     - there are at least 3 positional arguments and
 
-    - the last positional argument is either None, True, False or a *function*,
+    - the last positional argument is either None, True, False or a
+      *function*,
 
     then `target` is the next-to-last positional argument and `defaults` is the
     last positional argument. Notice that passing a callable that is not a
     function is possible only with a keyword argument. If this is too
     confusing, pass `defaults` as a keyword argument.
+
+    .. versionchanged:: 1.6.11 Passing `defaults` as the last positional
+       argument is now deprecated and it will be removed in version 1.7.0.
 
     If `defaults` is a dictionary or an iterable then only the names provided
     by itering over `defaults` will be copied. If `defaults` is a dictionary,
@@ -1070,7 +1074,13 @@ def smart_copy(*args, **kwargs):
                         % kwargs.keys()[0])
     if defaults is Unset and len(args) >= 3:
         args, last = args[:-1], args[-1]
-        if isinstance(last, bool) or isinstance(last, function) or last is None:
+        if isinstance(last, (bool, function)) or last is None:
+            import warnings
+            warnings.warn(
+                "The 'defaults' arguments should be passed as a keyword"
+                " argument",
+                stacklevel=1
+            )
             defaults = last if last is not None else False
             sources, target = args[:-1], args[-1]
         else:
