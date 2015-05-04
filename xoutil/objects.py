@@ -1441,3 +1441,6 @@ def dict_merge(*dicts, **others):
                                     % key)
                 result[key] = value
     return result
+
+
+del deprecated
