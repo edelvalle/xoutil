@@ -1124,7 +1124,7 @@ def smart_copy(*args, **kwargs):
                 items = dir(source)
             for key in items:
                 private = isinstance(key, str_base) and key.startswith('_')
-                if defaults is False and private:
+                if (defaults is False or defaults is None) and private:
                     copy = False
                 elif callable(defaults):
                     copy = defaults(key, source=source)
