@@ -19,7 +19,7 @@ from __future__ import (division as _py3_division,
                         unicode_literals as _py3_unicode,
                         absolute_import as _py3_abs_imports)
 
-VERSION = '1.6.10'
+VERSION = '1.6.11'
 
 
 def dev_tag():
@@ -60,3 +60,8 @@ def dev_tag_installed():
 
 
 RELEASE_TAG = dev_tag_installed() or dev_tag()
+
+
+# I won't put the release tag in the version_info tuple.  Since PEP440 is on
+# the way.
+VERSION_INFO = tuple(int(x) for x in VERSION.split('.'))
