@@ -1,6 +1,16 @@
 This is the last release of the 1.6 series.  It's being synchronized with
 release 1.7.0 to deprecate here what's being changed there.
 
+In 1.7.0 we extract the Python 2/3 compatibility layer to a separate
+`xoutil.eight`:mod: module, thus leaving ``xoutil`` modules for things that,
+though they will work in both Python 2/3, are not backports or fixes to
+modules in the standard library, the later will be the goal of
+``xoutil.eight``.
+
+In this regard, both 1.6.11 and 1.7.0 will be the middle ground of this
+process.  Some things are deprecated in this release and removed in 1.7.0,
+while others are being deprecated in 1.7.0 and removed later on.
+
 - The `defaults` argument of `xoutil.objects.smart_copy`:func: is going to be
   keyword-only in version 1.7.0.  Using it as a positional argument will now
   issue a warning.
@@ -12,7 +22,4 @@ release 1.7.0 to deprecate here what's being changed there.
 - This release will be the last to support Python 3.1, 3.2 and 3.3.  Support
   will be kept for Python 2.7 and Python 3.4.
 
-- There's a new `xoutil.eight`:mod: in xoutil 1.7.0 that will contain what's
-  being left in xoutil about Python 2/3 compatibility.  Since 1.6.6 we
-  un-bundled six but kept the `xoutil.six` namespace around.  This will be
-  removed.
+- Mark the `xoutil.six`:mod: for removal in 1.7.0.
