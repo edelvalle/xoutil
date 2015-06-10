@@ -260,19 +260,19 @@ the outbox.
 Using the `Bounded.generate`:meth: method
 =========================================
 
-Calling a `bounded generator` simply returns the last valued produced by the
+Calling a `bounded function` simply returns the last valued produced by the
 `unbounded generator`, but sometimes you need to actually *see* all the values
-produced.  This is useful if you need to meld several `generators` with
-partially overlapping boundary conditions.
+produced by the `bounded generator`.  This is useful if you need to meld
+several `generators` with partially overlapping boundary conditions.
 
 Let's give an example by extending a bit the example given in the previous
 section.  Assume you now need to extend your cron task to also read an Inbox
-as much as it can and then send as many messages as it can.  Both things
-should be done under a given amount of time, however the accumulated size of
-sent messages should not surpass a threshold of bytes to avoid congestion.
+as much as it can and send as many messages as it can.  Both things should be
+done under a given amount of time, however the accumulated size of sent
+messages should not surpass a threshold of bytes to avoid congestion.
 
 For this task you may use both `timed`:func: and `accumulated`:func:.  Notice
-that you to apply `accumulated`:func: only to the process of sending the
+that you must apply `accumulated`:func: only to the process of sending the
 messages and the `timed` boundary to the overall process.
 
 This can be accomplished like this:
@@ -300,7 +300,7 @@ Let's break this into its parts:
 
 - The ``receive`` function reads the Inbox and yields each message received.
 
-  It is actually an `unbounded function`:term: but don't want to bound its
+  It is actually an `unbounded function`:term:, we don't want to bound its
   execution in isolation.
 
 - The ``send`` unbounded function sends every message we have in the Outbox
@@ -309,9 +309,10 @@ Let's break this into its parts:
 
 - Then we define an `execute` function bounded by `timed`.  This function
   melds the ``receive`` and ``send`` processes, but we can't actually call
-  ``send`` because we need to yield after each message has been received or
-  sent.  That's why we need to call the `~Bounded.generate`:meth: so that the
-  time boundary is also applied to the sending process.
+  ``send`` because that would return a single message and we need to yield
+  after each message has been sent.  That's why we need to call the
+  `~Bounded.generate`:meth: so that the time boundary is also applied to the
+  sending process.
 
 .. note:: The structure from this example is actually taken from a real
    program, although simplified to serve better for learning.  For instance,
